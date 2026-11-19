@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -44,6 +45,9 @@ fun PantallaPermisos(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val preferencias = remember { com.garaih.appgastos.datos.Preferencias(context) }
+    var leerSantander by remember { androidx.compose.runtime.mutableStateOf(preferencias.leerSantander) }
+    val santanderInstalada = remember { Cartera.santanderInstalada(context) }
     Column(
         modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -56,7 +60,7 @@ fun PantallaPermisos(
                 )
                 Text(
                     "Necesario para registrar solos los pagos con el móvil. " +
-                        "La app solo lee las notificaciones de Google Wallet e ignora el resto. " +
+                        "La app solo lee las notificaciones de Google Wallet (y de Santander si lo activas) e ignora el resto. " +
                         "Tus gastos nunca salen del teléfono.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -75,6 +79,31 @@ fun PantallaPermisos(
                 )
                 Text(
                     "Paquete: ${Cartera.PAQUETE_WALLET}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("🏦  Avisos de Santander", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (santanderInstalada) "App Santander instalada" else "App Santander no encontrada",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = leerSantander,
+                        onCheckedChange = { leerSantander = it; preferencias.leerSantander = it },
+                    )
+                }
+                Text(
+                    "Registra también los pagos con la tarjeta física. Actívalo en la app de Santander: " +
+                        "alertas de \"Compras hechas con la tarjeta\". Si un pago llega por Wallet y por Santander, " +
+                        "se guarda una sola vez.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -29,6 +29,9 @@ interface GastoDao {
     @Query("SELECT * FROM gastos WHERE categoria IS NULL")
     suspend fun sinCategoria(): List<Gasto>
 
+    @Query("SELECT * FROM gastos WHERE fecha BETWEEN :desde AND :hasta")
+    suspend fun entre(desde: Long, hasta: Long): List<Gasto>
+
     @Query("UPDATE gastos SET categoria = NULL, subcategoria = NULL WHERE categoria = :categoria")
     suspend fun quitarCategoria(categoria: String)
 }

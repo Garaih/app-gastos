@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import com.garaih.appgastos.datos.Categoria
 import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.ParserCartera
+import com.garaih.appgastos.datos.Recurrencia
+import com.garaih.appgastos.datos.Recurrente
+import androidx.compose.material3.Switch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -56,7 +59,10 @@ import java.time.ZoneOffset
 fun PantallaEditarGasto(
     gasto: Gasto?,
     categorias: List<Categoria>,
-    onGuardar: (Gasto, Boolean) -> Unit,
+    recurrente: Recurrente?,
+    /** (gasto, recordar categoría, repetición: null = no repetir; Repeticion(plazos=null) = cada mes sin fin) */
+    onGuardar: (Gasto, Boolean, Repeticion?) -> Unit,
+    onGestionarRecurrente: (Recurrente) -> Unit,
     onBorrar: (Gasto) -> Unit,
     mostrarConfirmarBorrado: Boolean,
     onCerrarConfirmarBorrado: () -> Unit,
@@ -69,6 +75,9 @@ fun PantallaEditarGasto(
     var subcategoria by remember { mutableStateOf(gasto?.subcategoria) }
     var recordar by remember { mutableStateOf(true) }
     var verCalendario by remember { mutableStateOf(false) }
+    var repetir by remember { mutableStateOf(false) }
+    var plazosTexto by remember { mutableStateOf("") }
+    val plazos = plazosTexto.toIntOrNull()?.takeIf { it in 2..360 }
 
     val centimos = ParserCartera.aCentimos(importe.trim())
     val importeValido = centimos != null && centimos > 0
@@ -156,6 +165,43 @@ fun PantallaEditarGasto(
             )
         }
 
+        if (gasto?.recurrenteId != null) {
+            TarjetaRecurrencia(gasto, recurrente, onGestionarRecurrente)
+        } else {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("🔁 Repetir cada mes", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Recibos, suscripciones o compras a plazos. Se apuntará solo el mismo día de cada mes.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = repetir, onCheckedChange = { repetir = it })
+                    }
+                    if (repetir) {
+                        OutlinedTextField(
+                            value = plazosTexto,
+                            onValueChange = { plazosTexto = it.filter { c -> c.isDigit() }.take(3) },
+                            label = { Text("Número de plazos (vacío = sin fin)") },
+                            supportingText = {
+                                Text(
+                                    if (plazos != null && centimos != null)
+                                        "$plazos plazos de ${euros(centimos)} = ${euros(centimos * plazos)} en total. Este es el plazo 1."
+                                    else "Sin fin: hasta que lo finalices en ⚙️ → Gastos recurrentes."
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+
         Button(
             onClick = {
                 val base = gasto ?: Gasto(
@@ -173,6 +219,7 @@ fun PantallaEditarGasto(
                         subcategoria = if (categoria == null) null else subcategoria,
                     ),
                     recordar && categoria != null,
+                    if (repetir && gasto?.recurrenteId == null) Repeticion(plazos) else null,
                 )
             },
             enabled = valido,
@@ -222,5 +269,35 @@ fun PantallaEditarGasto(
             confirmButton = { TextButton(onClick = { onBorrar(gasto) }) { Text("Borrar") } },
             dismissButton = { TextButton(onClick = onCerrarConfirmarBorrado) { Text("Cancelar") } },
         )
+    }
+}
+
+
+/** Repetición elegida al guardar un gasto. plazos = null significa sin fin. */
+data class Repeticion(val plazos: Int?)
+
+@Composable
+private fun TarjetaRecurrencia(gasto: Gasto, r: Recurrente?, onGestionar: (Recurrente) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (r == null) {
+                Text("🔁 Venía de un gasto recurrente que ya se borró.", style = MaterialTheme.typography.bodyMedium)
+                return@Column
+            }
+            val titulo = if (r.plazos != null) "🔁 Plazo ${gasto.plazo ?: "?"} de ${r.plazos}" else "🔁 Gasto recurrente mensual"
+            Text(titulo, style = MaterialTheme.typography.titleSmall)
+            val restantes = Recurrencia.plazosRestantes(r)
+            if (restantes != null) {
+                Text(
+                    if (restantes == 0) "Todos los plazos apuntados."
+                    else "Quedan $restantes ${if (restantes == 1) "plazo" else "plazos"} · ${euros(r.importeCentimos * restantes)} pendientes",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Recurrencia.siguiente(r)?.let {
+                Text("Próximo cargo: ${it.fecha.dayOfMonth}/${it.fecha.monthValue}/${it.fecha.year}", style = MaterialTheme.typography.bodySmall)
+            } ?: if (!r.activo && r.plazos == null) Text("Finalizado.", style = MaterialTheme.typography.bodySmall) else Unit
+            TextButton(onClick = { onGestionar(r) }) { Text("Cambiar o finalizar la recurrencia") }
+        }
     }
 }

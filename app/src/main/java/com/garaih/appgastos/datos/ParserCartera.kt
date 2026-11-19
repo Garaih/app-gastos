@@ -31,12 +31,14 @@ object ParserCartera {
         val importe = buscarImporte(cuerpo) ?: buscarImporte(titulo.orEmpty())
         val tarjeta = TARJETA.find(todo)?.groupValues?.get(1)
 
-        // El comercio suele ir en el título; si el título es el importe, se usa el texto.
+        // El comercio suele ir en el título; si el título es el importe o un texto genérico del
+        // banco ("Compra con tarjeta", "Santander"...), se busca "... en COMERCIO ..." en el texto.
         val tituloLimpio = titulo?.trim()?.takeIf { it.isNotEmpty() }
+        val tituloGenerico = tituloLimpio != null && GENERICO.containsMatchIn(tituloLimpio)
         val comercio = when {
-            tituloLimpio != null && buscarImporte(tituloLimpio) == null -> tituloLimpio
-            else -> texto?.lineSequence()?.map { it.trim() }
-                ?.firstOrNull { it.isNotEmpty() && buscarImporte(it) == null }
+            tituloLimpio != null && !tituloGenerico && buscarImporte(tituloLimpio) == null -> tituloLimpio
+            else -> comercioEnTexto(cuerpo) ?: texto?.lineSequence()?.map { it.trim() }
+                ?.firstOrNull { it.isNotEmpty() && buscarImporte(it) == null && !GENERICO.containsMatchIn(it) }
         }
 
         return Resultado(
@@ -46,6 +48,16 @@ object ParserCartera {
             tarjeta = tarjeta,
         )
     }
+
+    private val GENERICO = Regex(
+        """(?i)\b(santander|compra|pago|tarjeta|cargo|operaci[oó]n|movimiento|wallet|aviso|alerta)\b"""
+    )
+    private val EN_COMERCIO = Regex("""(?i)\ben\s+(.+?)(?=\s+(?:con|el|por|desde|a las|mediante)\b|[.,;(]|$)""")
+
+    /** "Compra de 12,34 € en MERCADONA con tu tarjeta" -> "MERCADONA". */
+    internal fun comercioEnTexto(texto: String): String? =
+        EN_COMERCIO.findAll(texto).map { it.groupValues[1].trim() }
+            .firstOrNull { c -> c.isNotEmpty() && !c.first().isDigit() && !c.startsWith("tu ", true) && !c.startsWith("tarjeta", true) }
 
     /** Devuelve (céntimos, moneda) o null. */
     internal fun buscarImporte(texto: String): Pair<Long, String>? {

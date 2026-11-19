@@ -383,6 +383,8 @@ fun FilaGasto(g: Gasto, onClick: () -> Unit) {
             Text(
                 listOfNotNull(
                     fechaHora(g.fecha),
+                    if (g.recurrenteId != null) ("🔁" + (g.plazo?.let { " plazo $it" } ?: "")) else null,
+                    if (g.origen == Gasto.ORIGEN_SANTANDER) "Santander" else null,
                     g.subcategoria,
                     g.tarjeta?.let { "••$it" },
                     if (g.origen == Gasto.ORIGEN_MANUAL) "manual" else null,

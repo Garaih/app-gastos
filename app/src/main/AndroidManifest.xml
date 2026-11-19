@@ -9,6 +9,7 @@
     <!-- Para comprobar si Google Wallet está instalada (visibilidad de paquetes, Android 11+). -->
     <queries>
         <package android:name="com.google.android.apps.walletnfcrel" />
+        <package android:name="es.bancosantander.apps" />
     </queries>
     <application
         android:allowBackup="false"

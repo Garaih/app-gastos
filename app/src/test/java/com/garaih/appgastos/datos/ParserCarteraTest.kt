@@ -54,4 +54,17 @@ class ParserCarteraTest {
         assertNull(r.importeCentimos)
         assertFalse(r.interpretado)
     }
+
+    @Test fun avisoGenericoDeBanco() {
+        val r = ParserCartera.interpretar("Compra con tarjeta", "Compra de 18,90 € en COMERCIO INVENTADO con tu tarjeta terminada en 2468", null, null)
+        assertEquals(1890L, r.importeCentimos)
+        assertEquals("COMERCIO INVENTADO", r.comercio)
+        assertEquals("2468", r.tarjeta)
+    }
+
+    @Test fun avisoConNombreDelBancoEnElTitulo() {
+        val r = ParserCartera.interpretar("Santander", "Has pagado 7,20 EUR en Kiosco de Prueba.", null, null)
+        assertEquals(720L, r.importeCentimos)
+        assertEquals("Kiosco de Prueba", r.comercio)
+    }
 }

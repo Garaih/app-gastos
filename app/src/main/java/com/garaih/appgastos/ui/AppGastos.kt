@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -53,6 +54,7 @@ import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.GastosRepositorio
 import com.garaih.appgastos.datos.Periodo
 import com.garaih.appgastos.datos.Preferencias
+import com.garaih.appgastos.datos.Recurrente
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import kotlin.math.roundToInt
@@ -64,6 +66,7 @@ private sealed interface Pantalla {
     data class Editar(val gasto: Gasto?) : Pantalla
     data object Buscar : Pantalla
     data object Categorias : Pantalla
+    data object Recurrentes : Pantalla
     data class EditarCategoria(val categoria: Categoria?) : Pantalla
     data object Permisos : Pantalla
     data object Diagnostico : Pantalla
@@ -84,6 +87,9 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     val inversiones by repositorio.inversiones.collectAsState(initial = emptyList())
     val ingresos by repositorio.ingresos.collectAsState(initial = emptyList())
     val ingresosFijos by repositorio.ingresosFijos.collectAsState(initial = emptyList())
+    val recurrentes by repositorio.recurrentes.collectAsState(initial = emptyList())
+    // Al abrir la app se apuntan los cargos recurrentes que tocan hasta hoy.
+    LaunchedEffect(Unit) { repositorio.generarRecurrentes() }
     val mapaPresupuestos = presupuestos.associate { it.categoria to it.limiteCentimos }
     val scope = rememberCoroutineScope()
 
@@ -95,6 +101,9 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     var confirmarBorrado by remember { mutableStateOf(false) }
     var dialogoPeriodo by remember { mutableStateOf(false) }
     var dialogoActualizar by remember { mutableStateOf(false) }
+    var recurrenteEditando by remember { mutableStateOf<Recurrente?>(null) }
+    /** Alta manual pendiente de confirmar porque se parece a un gasto ya guardado. */
+    var duplicado by remember { mutableStateOf<Triple<Gasto, Gasto, () -> Unit>?>(null) }
 
     val enPestana = pantalla in PESTANAS
 
@@ -116,6 +125,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
         is Pantalla.Editar -> if (p.gasto == null) "Nuevo gasto" else "Editar gasto"
         Pantalla.Buscar -> "Buscar"
         Pantalla.Categorias -> "Categorías"
+        Pantalla.Recurrentes -> "Recurrentes y plazos"
         is Pantalla.EditarCategoria -> if (p.categoria == null) "Nueva categoría" else "Editar categoría"
         Pantalla.Permisos -> "Permisos"
         Pantalla.Diagnostico -> "Diagnóstico de captura"
@@ -158,6 +168,11 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                                 text = { Text("Categorías y presupuestos") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                                 onClick = { menuAbierto = false; pantalla = Pantalla.Categorias },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Gastos recurrentes y plazos") },
+                                leadingIcon = { Text("🔁") },
+                                onClick = { menuAbierto = false; pantalla = Pantalla.Recurrentes },
                             )
                             DropdownMenuItem(
                                 text = { Text("Inicio del periodo: día $diaInicio") },
@@ -261,11 +276,23 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             is Pantalla.Editar -> PantallaEditarGasto(
                 gasto = p.gasto,
                 categorias = categorias,
-                onGuardar = { g, recordar ->
-                    scope.launch { repositorio.guardar(g, recordar) }
-                    periodo = Periodo.que(aFechaLocal(g.fecha), diaInicio)
-                    volver()
+                recurrente = p.gasto?.recurrenteId?.let { id -> recurrentes.firstOrNull { it.id == id } },
+                onGuardar = { g, recordar, repeticion ->
+                    val guardarYa = {
+                        scope.launch {
+                            if (repeticion != null) repositorio.guardarComoRecurrente(g, repeticion.plazos, recordar)
+                            else repositorio.guardar(g, recordar)
+                        }
+                        periodo = Periodo.que(aFechaLocal(g.fecha), diaInicio)
+                        volver()
+                    }
+                    if (g.id != 0L) guardarYa()
+                    else scope.launch {
+                        val parecido = repositorio.posibleDuplicado(g)
+                        if (parecido == null) guardarYa() else duplicado = Triple(g, parecido, guardarYa)
+                    }
                 },
+                onGestionarRecurrente = { recurrenteEditando = it },
                 onBorrar = { g ->
                     scope.launch { repositorio.borrar(g) }
                     volver()
@@ -278,6 +305,12 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 gastos = gastos,
                 categorias = categorias,
                 onAbrirGasto = { pantalla = Pantalla.Editar(it) },
+                modifier = mod,
+            )
+            Pantalla.Recurrentes -> PantallaRecurrentes(
+                recurrentes = recurrentes,
+                categorias = categorias,
+                onEditar = { recurrenteEditando = it },
                 modifier = mod,
             )
             Pantalla.Categorias -> PantallaCategorias(
@@ -306,6 +339,31 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             Pantalla.Permisos -> PantallaPermisos(permisoConcedido, carteraInstalada, mod)
             Pantalla.Diagnostico -> PantallaDiagnostico(mod)
         }
+    }
+
+    recurrenteEditando?.let { r ->
+        DialogoRecurrente(
+            r = r,
+            onGuardar = { scope.launch { repositorio.guardarRecurrente(it) } },
+            onFinalizar = { scope.launch { repositorio.finalizarRecurrente(it) } },
+            onBorrar = { scope.launch { repositorio.borrarRecurrente(it) } },
+            onCerrar = { recurrenteEditando = null },
+        )
+    }
+
+    duplicado?.let { (nuevo, existente, guardarYa) ->
+        AlertDialog(
+            onDismissRequest = { duplicado = null },
+            title = { Text("¿Gasto repetido?") },
+            text = {
+                Text(
+                    "Ya tienes ese día un gasto de ${euros(existente.importeCentimos ?: 0)} en " +
+                        "\"${existente.comercio}\" (${fechaHora(existente.fecha)}). ¿Añadir \"${nuevo.comercio}\" igualmente?"
+                )
+            },
+            confirmButton = { TextButton(onClick = { duplicado = null; guardarYa() }) { Text("Añadir igualmente") } },
+            dismissButton = { TextButton(onClick = { duplicado = null }) { Text("No, es el mismo") } },
+        )
     }
 
     if (dialogoActualizar) DialogoActualizar(onCerrar = { dialogoActualizar = false })

@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Gasto::class, ReglaCategoria::class, Categoria::class,
-        Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class, IngresoFijo::class,
+        Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class, IngresoFijo::class, Recurrente::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class BaseDatos : RoomDatabase() {
@@ -20,6 +20,7 @@ abstract class BaseDatos : RoomDatabase() {
     abstract fun reglaDao(): ReglaCategoriaDao
     abstract fun categoriaDao(): CategoriaDao
     abstract fun finanzasDao(): FinanzasDao
+    abstract fun recurrenteDao(): RecurrenteDao
 
     companion object {
         @Volatile private var instancia: BaseDatos? = null
@@ -74,6 +75,20 @@ abstract class BaseDatos : RoomDatabase() {
             }
         }
 
+        private val MIGRACION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `gastos` ADD COLUMN `recurrenteId` INTEGER")
+                db.execSQL("ALTER TABLE `gastos` ADD COLUMN `plazo` INTEGER")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `recurrentes` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`comercio` TEXT NOT NULL, `importeCentimos` INTEGER NOT NULL, `categoria` TEXT, " +
+                        "`subcategoria` TEXT, `dia` INTEGER NOT NULL, `inicioMes` INTEGER NOT NULL, " +
+                        "`plazos` INTEGER, `ultimoMes` INTEGER NOT NULL, `activo` INTEGER NOT NULL, " +
+                        "`creado` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         private fun crearTablaCategorias(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS `categorias` (`clave` TEXT NOT NULL, `nombre` TEXT NOT NULL, " +
@@ -105,7 +120,7 @@ abstract class BaseDatos : RoomDatabase() {
                 instancia ?: Room.databaseBuilder(
                     context.applicationContext, BaseDatos::class.java, "gastos.db"
                 )
-                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5)
+                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5, MIGRACION_5_6)
                     .addCallback(AL_CREAR)
                     .build().also { instancia = it }
             }

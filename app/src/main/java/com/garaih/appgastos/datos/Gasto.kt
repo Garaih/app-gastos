@@ -30,10 +30,15 @@ data class Gasto(
     val categoria: String? = null,
     /** Nombre de la subcategoría dentro de la categoría, o null. */
     val subcategoria: String? = null,
+    /** Si viene de un gasto recurrente o a plazos, su id y el número de plazo. */
+    val recurrenteId: Long? = null,
+    val plazo: Int? = null,
 ) {
     companion object {
         const val ORIGEN_CARTERA = "cartera"
         const val ORIGEN_MANUAL = "manual"
         const val ORIGEN_PRUEBA = "prueba"
+        const val ORIGEN_SANTANDER = "santander"
+        const val ORIGEN_RECURRENTE = "recurrente"
     }
 }

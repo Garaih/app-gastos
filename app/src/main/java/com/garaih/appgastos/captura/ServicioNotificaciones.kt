@@ -4,6 +4,7 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.garaih.appgastos.datos.GastosRepositorio
+import com.garaih.appgastos.datos.Preferencias
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -11,25 +12,27 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Escucha notificaciones y descarta todo lo que no venga de la cartera de Google.
- * Las de la cartera se muestran en el visor (memoria) y se guardan como Gasto (Room).
+ * Escucha notificaciones y descarta todo lo que no venga de Google Wallet o (si está activado)
+ * de la app de Santander. Las aceptadas se muestran en el visor (memoria) y se guardan como Gasto (Room).
  * No escribe su contenido en el log.
  */
 class ServicioNotificaciones : NotificationListenerService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val repositorio by lazy { GastosRepositorio.de(applicationContext) }
+    private val preferencias by lazy { Preferencias(applicationContext) }
+    private fun paquetes() = Cartera.paquetes(preferencias.leerSantander)
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         // Recoge las de la cartera que ya estuvieran en la bandeja (los duplicados se ignoran).
         runCatching { activeNotifications }.getOrNull()
-            ?.filter { it.packageName in Cartera.PAQUETES }
+            ?.filter { it.packageName in paquetes() }
             ?.forEach { procesar(it) }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName !in Cartera.PAQUETES) return
+        if (sbn.packageName !in paquetes()) return
         procesar(sbn)
     }
 
@@ -59,7 +62,11 @@ class ServicioNotificaciones : NotificationListenerService() {
         CapturaRepositorio.anadir(cruda)
         scope.launch {
             // Misma notificación y mismo instante = mismo pago, aunque se reenvíe o actualice.
-            repositorio.guardarDesdeNotificacion(cruda, claveOrigen = "${sbn.key}|$momento")
+            repositorio.guardarDesdeNotificacion(
+                cruda,
+                claveOrigen = "${sbn.key}|$momento",
+                origen = Cartera.origenDe(sbn.packageName),
+            )
         }
     }
 }

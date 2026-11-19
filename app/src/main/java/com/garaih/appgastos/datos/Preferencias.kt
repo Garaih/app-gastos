@@ -10,7 +10,13 @@ class Preferencias(context: Context) {
         get() = prefs.getInt(CLAVE_DIA, 25)
         set(valor) = prefs.edit().putInt(CLAVE_DIA, valor.coerceIn(1, 28)).apply()
 
+    /** Leer también las notificaciones de compra de la app de Santander. */
+    var leerSantander: Boolean
+        get() = prefs.getBoolean(CLAVE_SANTANDER, true)
+        set(valor) = prefs.edit().putBoolean(CLAVE_SANTANDER, valor).apply()
+
     private companion object {
         const val CLAVE_DIA = "dia_inicio_periodo"
+        const val CLAVE_SANTANDER = "leer_santander"
     }
 }
