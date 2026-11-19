@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.garaih.appgastos.datos.Categoria
 import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.GastosRepositorio
@@ -239,4 +240,3 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     }
 }
 
-private val Int.dp get() = androidx.compose.ui.unit.Dp(this.toFloat())
