@@ -116,7 +116,8 @@ fun PantallaCategorias(
 @Composable
 fun PantallaEditarCategoria(
     categoria: Categoria?,
-    onGuardar: (Categoria) -> Unit,
+    presupuestoInicial: Long?,
+    onGuardar: (Categoria, Long?) -> Unit,
     onBorrar: (Categoria) -> Unit,
     mostrarConfirmarBorrado: Boolean,
     onCerrarConfirmarBorrado: () -> Unit,
@@ -125,6 +126,7 @@ fun PantallaEditarCategoria(
     var nombre by remember { mutableStateOf(categoria?.nombre ?: "") }
     var emoji by remember { mutableStateOf(categoria?.emoji ?: "🏷️") }
     var color by remember { mutableStateOf(categoria?.color ?: PALETA.first()) }
+    var presupuesto by remember { mutableStateOf(importeEditable(presupuestoInicial)) }
     var palabras by remember { mutableStateOf(categoria?.listaPalabras()?.joinToString(", ") ?: "") }
     val subs = remember {
         mutableStateListOf<Pair<String, String>>().apply {
@@ -170,6 +172,8 @@ fun PantallaEditarCategoria(
                 )
             }
         }
+
+        CampoImporte(presupuesto, { presupuesto = it }, "Presupuesto por periodo (opcional)")
 
         OutlinedTextField(
             value = palabras,
@@ -221,7 +225,8 @@ fun PantallaEditarCategoria(
                         orden = categoria?.orden ?: 0,
                         subcategorias = Categoria.codificarSubcategorias(lista),
                         palabrasClave = Categoria.decodificarPalabras(palabras).joinToString(","),
-                    )
+                    ),
+                    centimosDe(presupuesto),
                 )
             },
             enabled = nombre.isNotBlank(),

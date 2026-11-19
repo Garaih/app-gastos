@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -25,6 +26,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -43,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.garaih.appgastos.datos.Categoria
 import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.GastosRepositorio
@@ -54,12 +58,17 @@ import kotlin.math.roundToInt
 
 private sealed interface Pantalla {
     data object Inicio : Pantalla
+    data object Analisis : Pantalla
+    data object Ahorro : Pantalla
     data class Editar(val gasto: Gasto?) : Pantalla
+    data object Buscar : Pantalla
     data object Categorias : Pantalla
     data class EditarCategoria(val categoria: Categoria?) : Pantalla
     data object Permisos : Pantalla
     data object Diagnostico : Pantalla
 }
+
+private val PESTANAS = listOf(Pantalla.Inicio, Pantalla.Analisis, Pantalla.Ahorro)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,27 +78,40 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     val preferencias = remember { Preferencias(context) }
     val gastos by repositorio.gastos.collectAsState(initial = emptyList())
     val categorias by repositorio.categorias.collectAsState(initial = emptyList())
+    val presupuestos by repositorio.presupuestos.collectAsState(initial = emptyList())
+    val objetivos by repositorio.objetivos.collectAsState(initial = emptyList())
+    val inversiones by repositorio.inversiones.collectAsState(initial = emptyList())
+    val ingresos by repositorio.ingresos.collectAsState(initial = emptyList())
+    val mapaPresupuestos = presupuestos.associate { it.categoria to it.limiteCentimos }
     val scope = rememberCoroutineScope()
 
     var pantalla by remember { mutableStateOf<Pantalla>(Pantalla.Inicio) }
+    var pestana by remember { mutableStateOf<Pantalla>(Pantalla.Inicio) }
     var diaInicio by remember { mutableStateOf(preferencias.diaInicioPeriodo) }
     var periodo by remember { mutableStateOf(Periodo.que(LocalDate.now(), diaInicio)) }
     var menuAbierto by remember { mutableStateOf(false) }
     var confirmarBorrado by remember { mutableStateOf(false) }
     var dialogoPeriodo by remember { mutableStateOf(false) }
 
+    val enPestana = pantalla in PESTANAS
+
     fun volver() {
         confirmarBorrado = false
         pantalla = when (pantalla) {
             is Pantalla.EditarCategoria -> Pantalla.Categorias
-            else -> Pantalla.Inicio
+            Pantalla.Analisis, Pantalla.Ahorro -> Pantalla.Inicio
+            else -> pestana
         }
+        if (pantalla in PESTANAS) pestana = pantalla
     }
     BackHandler(enabled = pantalla != Pantalla.Inicio) { volver() }
 
     val titulo = when (val p = pantalla) {
         Pantalla.Inicio -> "Mis gastos"
+        Pantalla.Analisis -> "Análisis"
+        Pantalla.Ahorro -> "Ahorro e inversiones"
         is Pantalla.Editar -> if (p.gasto == null) "Nuevo gasto" else "Editar gasto"
+        Pantalla.Buscar -> "Buscar"
         Pantalla.Categorias -> "Categorías"
         is Pantalla.EditarCategoria -> if (p.categoria == null) "Nueva categoría" else "Editar categoría"
         Pantalla.Permisos -> "Permisos"
@@ -104,7 +126,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 title = { Text(titulo, fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 navigationIcon = {
-                    if (pantalla != Pantalla.Inicio) {
+                    if (!enPestana) {
                         IconButton(onClick = { volver() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                         }
@@ -118,6 +140,11 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                         }
                     }
                     if (p == Pantalla.Inicio) {
+                        IconButton(onClick = { pantalla = Pantalla.Buscar }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Buscar")
+                        }
+                    }
+                    if (enPestana) {
                         IconButton(onClick = { menuAbierto = true }) {
                             BadgedBox(badge = { if (!permisoConcedido) Badge() }) {
                                 Icon(Icons.Filled.Settings, contentDescription = "Configuración")
@@ -125,7 +152,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                         }
                         DropdownMenu(expanded = menuAbierto, onDismissRequest = { menuAbierto = false }) {
                             DropdownMenuItem(
-                                text = { Text("Categorías") },
+                                text = { Text("Categorías y presupuestos") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                                 onClick = { menuAbierto = false; pantalla = Pantalla.Categorias },
                             )
@@ -151,6 +178,24 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 },
             )
         },
+        bottomBar = {
+            if (enPestana) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                    listOf(
+                        Triple(Pantalla.Inicio, "🧾", "Gastos"),
+                        Triple(Pantalla.Analisis, "📊", "Análisis"),
+                        Triple(Pantalla.Ahorro, "🐷", "Ahorro"),
+                    ).forEach { (destino, icono, nombre) ->
+                        NavigationBarItem(
+                            selected = pantalla == destino,
+                            onClick = { pantalla = destino; pestana = destino },
+                            icon = { Text(icono, fontSize = 20.sp) },
+                            label = { Text(nombre) },
+                        )
+                    }
+                }
+            }
+        },
         floatingActionButton = {
             if (pantalla == Pantalla.Inicio) {
                 ExtendedFloatingActionButton(
@@ -166,9 +211,34 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             Pantalla.Inicio -> PantallaInicio(
                 gastos = gastos,
                 categorias = categorias,
+                presupuestos = mapaPresupuestos,
                 periodo = periodo,
                 onCambiarPeriodo = { periodo = it },
                 onAbrirGasto = { pantalla = Pantalla.Editar(it) },
+                modifier = mod,
+            )
+            Pantalla.Analisis -> PantallaAnalisis(
+                gastos = gastos,
+                categorias = categorias,
+                periodo = periodo,
+                onCambiarPeriodo = { periodo = it },
+                modifier = mod,
+            )
+            Pantalla.Ahorro -> PantallaAhorro(
+                gastos = gastos,
+                ingresos = ingresos,
+                objetivos = objetivos,
+                inversiones = inversiones,
+                periodo = periodo,
+                onCambiarPeriodo = { periodo = it },
+                acciones = AccionesAhorro(
+                    guardarIngreso = { scope.launch { repositorio.guardarIngreso(it) } },
+                    borrarIngreso = { scope.launch { repositorio.borrarIngreso(it) } },
+                    guardarObjetivo = { scope.launch { repositorio.guardarObjetivo(it) } },
+                    borrarObjetivo = { scope.launch { repositorio.borrarObjetivo(it) } },
+                    guardarInversion = { scope.launch { repositorio.guardarInversion(it) } },
+                    borrarInversion = { scope.launch { repositorio.borrarInversion(it) } },
+                ),
                 modifier = mod,
             )
             is Pantalla.Editar -> PantallaEditarGasto(
@@ -177,7 +247,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 onGuardar = { g, recordar ->
                     scope.launch { repositorio.guardar(g, recordar) }
                     periodo = Periodo.que(aFechaLocal(g.fecha), diaInicio)
-                    pantalla = Pantalla.Inicio
+                    volver()
                 },
                 onBorrar = { g ->
                     scope.launch { repositorio.borrar(g) }
@@ -187,6 +257,12 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 onCerrarConfirmarBorrado = { confirmarBorrado = false },
                 modifier = mod,
             )
+            Pantalla.Buscar -> PantallaBuscar(
+                gastos = gastos,
+                categorias = categorias,
+                onAbrirGasto = { pantalla = Pantalla.Editar(it) },
+                modifier = mod,
+            )
             Pantalla.Categorias -> PantallaCategorias(
                 categorias = categorias,
                 onEditar = { pantalla = Pantalla.EditarCategoria(it) },
@@ -194,8 +270,12 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             )
             is Pantalla.EditarCategoria -> PantallaEditarCategoria(
                 categoria = p.categoria,
-                onGuardar = { c ->
-                    scope.launch { repositorio.guardarCategoria(c) }
+                presupuestoInicial = p.categoria?.let { mapaPresupuestos[it.clave] },
+                onGuardar = { c, limite ->
+                    scope.launch {
+                        repositorio.guardarCategoria(c)
+                        repositorio.guardarPresupuesto(c.clave, limite)
+                    }
                     volver()
                 },
                 onBorrar = { c ->
@@ -239,4 +319,3 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
         )
     }
 }
-

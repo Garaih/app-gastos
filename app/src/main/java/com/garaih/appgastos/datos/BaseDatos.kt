@@ -8,14 +8,18 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Gasto::class, ReglaCategoria::class, Categoria::class],
-    version = 3,
+    entities = [
+        Gasto::class, ReglaCategoria::class, Categoria::class,
+        Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class,
+    ],
+    version = 4,
     exportSchema = false,
 )
 abstract class BaseDatos : RoomDatabase() {
     abstract fun gastoDao(): GastoDao
     abstract fun reglaDao(): ReglaCategoriaDao
     abstract fun categoriaDao(): CategoriaDao
+    abstract fun finanzasDao(): FinanzasDao
 
     companion object {
         @Volatile private var instancia: BaseDatos? = null
@@ -35,6 +39,29 @@ abstract class BaseDatos : RoomDatabase() {
                 db.execSQL("ALTER TABLE `reglas_categoria` ADD COLUMN `subcategoria` TEXT")
                 crearTablaCategorias(db)
                 sembrarCategorias(db)
+            }
+        }
+
+        private val MIGRACION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `presupuestos` (`categoria` TEXT NOT NULL, " +
+                        "`limiteCentimos` INTEGER NOT NULL, PRIMARY KEY(`categoria`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `objetivos` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`nombre` TEXT NOT NULL, `emoji` TEXT NOT NULL, `objetivoCentimos` INTEGER NOT NULL, " +
+                        "`ahorradoCentimos` INTEGER NOT NULL, `fechaLimite` INTEGER, `creado` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `inversiones` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`nombre` TEXT NOT NULL, `tipo` TEXT NOT NULL, `invertidoCentimos` INTEGER NOT NULL, " +
+                        "`valorCentimos` INTEGER NOT NULL, `actualizado` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ingresos` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`fecha` INTEGER NOT NULL, `importeCentimos` INTEGER NOT NULL, `concepto` TEXT NOT NULL)"
+                )
             }
         }
 
@@ -69,7 +96,7 @@ abstract class BaseDatos : RoomDatabase() {
                 instancia ?: Room.databaseBuilder(
                     context.applicationContext, BaseDatos::class.java, "gastos.db"
                 )
-                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3)
+                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4)
                     .addCallback(AL_CREAR)
                     .build().also { instancia = it }
             }

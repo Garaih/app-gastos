@@ -8,7 +8,29 @@ class GastosRepositorio(
     private val dao: GastoDao,
     private val reglas: ReglaCategoriaDao,
     private val categoriasDao: CategoriaDao,
+    private val finanzas: FinanzasDao,
 ) {
+    val presupuestos: Flow<List<Presupuesto>> = finanzas.presupuestos()
+    val objetivos: Flow<List<Objetivo>> = finanzas.objetivos()
+    val inversiones: Flow<List<Inversion>> = finanzas.inversiones()
+    val ingresos: Flow<List<Ingreso>> = finanzas.ingresos()
+
+    suspend fun presupuestoDe(categoria: String): Long? = finanzas.presupuesto(categoria)?.limiteCentimos
+
+    suspend fun guardarPresupuesto(categoria: String, limiteCentimos: Long?) {
+        if (limiteCentimos == null || limiteCentimos <= 0) finanzas.borrarPresupuesto(categoria)
+        else finanzas.guardarPresupuesto(Presupuesto(categoria, limiteCentimos))
+    }
+
+    suspend fun guardarObjetivo(o: Objetivo) { if (o.id == 0L) finanzas.insertarObjetivo(o) else finanzas.actualizarObjetivo(o) }
+    suspend fun borrarObjetivo(o: Objetivo) = finanzas.borrarObjetivo(o)
+
+    suspend fun guardarInversion(i: Inversion) { if (i.id == 0L) finanzas.insertarInversion(i) else finanzas.actualizarInversion(i) }
+    suspend fun borrarInversion(i: Inversion) = finanzas.borrarInversion(i)
+
+    suspend fun guardarIngreso(i: Ingreso) { if (i.id == 0L) finanzas.insertarIngreso(i) else finanzas.actualizarIngreso(i) }
+    suspend fun borrarIngreso(i: Ingreso) = finanzas.borrarIngreso(i)
+
 
     val gastos: Flow<List<Gasto>> = dao.observarTodos()
     val categorias: Flow<List<Categoria>> = categoriasDao.observarTodas()
@@ -78,6 +100,7 @@ class GastosRepositorio(
         dao.quitarCategoria(c.clave)
         reglas.borrarDeCategoria(c.clave)
         categoriasDao.borrar(c)
+        finanzas.borrarPresupuesto(c.clave)
     }
 
     suspend fun insertarEjemplo() {
@@ -98,7 +121,7 @@ class GastosRepositorio(
     companion object {
         fun de(context: Context): GastosRepositorio {
             val db = BaseDatos.obtener(context)
-            return GastosRepositorio(db.gastoDao(), db.reglaDao(), db.categoriaDao())
+            return GastosRepositorio(db.gastoDao(), db.reglaDao(), db.categoriaDao(), db.finanzasDao())
         }
     }
 }

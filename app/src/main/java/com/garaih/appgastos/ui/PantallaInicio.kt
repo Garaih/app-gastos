@@ -63,6 +63,7 @@ private data class Grupo(
     val emoji: String,
     val color: Color,
     val gastos: List<Gasto>,
+    val presupuesto: Long? = null,
 ) {
     val total: Long = gastos.sumOf { it.importeCentimos ?: 0L }
 }
@@ -74,6 +75,7 @@ private const val CLAVE_SIN = "_sin"
 fun PantallaInicio(
     gastos: List<Gasto>,
     categorias: List<Categoria>,
+    presupuestos: Map<String, Long>,
     periodo: Periodo,
     onCambiarPeriodo: (Periodo) -> Unit,
     onAbrirGasto: (Gasto) -> Unit,
@@ -82,7 +84,7 @@ fun PantallaInicio(
     val hoy = LocalDate.now()
     val periodoActual = Periodo.que(hoy, periodo.diaInicio)
     val delPeriodo = remember(gastos, periodo) { gastos.filter { periodo.contiene(aFechaLocal(it.fecha)) } }
-    val grupos = remember(delPeriodo, categorias) { agrupar(delPeriodo, categorias) }
+    val grupos = remember(delPeriodo, categorias, presupuestos) { agrupar(delPeriodo, categorias, presupuestos) }
     val total = delPeriodo.sumOf { it.importeCentimos ?: 0L }
     val historial = remember(gastos, periodo) {
         (5 downTo 0).map { n ->
@@ -112,6 +114,7 @@ fun PantallaInicio(
                 periodo = periodo,
                 totalAnterior = historial.getOrNull(4)?.second ?: 0L,
                 diasRestantes = diasRestantes,
+                presupuestoTotal = presupuestos.values.sum(),
                 grupos = grupos.filter { it.clave != CLAVE_REVISAR },
             )
         }
@@ -132,22 +135,26 @@ fun PantallaInicio(
     }
 }
 
-private fun agrupar(gastos: List<Gasto>, categorias: List<Categoria>): List<Grupo> {
+private fun agrupar(gastos: List<Gasto>, categorias: List<Categoria>, presupuestos: Map<String, Long>): List<Grupo> {
     val porClave = categorias.associateBy { it.clave }
     val revisar = gastos.filter { !it.interpretado || it.importeCentimos == null }
     val resto = gastos - revisar.toSet()
     val grupos = resto.groupBy { g -> g.categoria?.takeIf { it in porClave } }.map { (clave, lista) ->
         val cat = clave?.let { porClave[it] }
         if (cat == null) Grupo(CLAVE_SIN, "Sin categoría", "❔", Color(0xFF94A3B8), lista)
-        else Grupo(cat.clave, cat.nombre, cat.emoji, Color(cat.color), lista)
-    }.sortedByDescending { it.total }
+        else Grupo(cat.clave, cat.nombre, cat.emoji, Color(cat.color), lista, presupuestos[cat.clave])
+    }
+    // Categorías con presupuesto pero sin gastos también se muestran, para ver lo disponible.
+    val vacias = categorias.filter { c -> c.clave in presupuestos && grupos.none { it.clave == c.clave } }
+        .map { Grupo(it.clave, it.nombre, it.emoji, Color(it.color), emptyList(), presupuestos[it.clave]) }
+    val ordenados = (grupos + vacias).sortedByDescending { it.total }
     val cabecera = if (revisar.isNotEmpty())
         listOf(Grupo(CLAVE_REVISAR, "Por revisar", "⚠️", Color(0xFFB45309), revisar)) else emptyList()
-    return cabecera + grupos
+    return cabecera + ordenados
 }
 
 @Composable
-private fun SelectorPeriodo(periodo: Periodo, puedeAvanzar: Boolean, onCambiar: (Periodo) -> Unit) {
+fun SelectorPeriodo(periodo: Periodo, puedeAvanzar: Boolean, onCambiar: (Periodo) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -179,6 +186,7 @@ private fun TarjetaTotal(
     periodo: Periodo,
     totalAnterior: Long,
     diasRestantes: Long?,
+    presupuestoTotal: Long,
     grupos: List<Grupo>,
 ) {
     Card(
@@ -203,6 +211,15 @@ private fun TarjetaTotal(
                 if (diasRestantes != null) add(if (diasRestantes == 1L) "queda 1 día" else "quedan $diasRestantes días")
             }
             Text(partes.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+            if (presupuestoTotal > 0) {
+                val queda = presupuestoTotal - total
+                Text(
+                    if (queda >= 0) "Presupuesto ${euros(presupuestoTotal)} · disponible ${euros(queda)}"
+                    else "Presupuesto ${euros(presupuestoTotal)} · superado en ${euros(-queda)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             if (total > 0 && grupos.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -292,19 +309,34 @@ private fun TarjetaGrupo(g: Grupo, totalPeriodo: Long, onAbrirGasto: (Gasto) -> 
             Column(Modifier.weight(1f)) {
                 Text(g.nombre, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 val pct = if (totalPeriodo > 0) (g.total * 100 / totalPeriodo).toInt() else 0
+                val limite = g.presupuesto
+                val excedido = limite != null && g.total > limite
                 Text(
-                    "${g.gastos.size} ${if (g.gastos.size == 1) "gasto" else "gastos"}" +
-                        if (g.clave != CLAVE_REVISAR) " · $pct %" else " · toca para corregir",
+                    when {
+                        g.clave == CLAVE_REVISAR -> "${g.gastos.size} · toca para corregir"
+                        limite != null -> if (excedido) "Superado en ${euros(g.total - limite)} (límite ${euros(limite)})"
+                            else "Quedan ${euros(limite - g.total)} de ${euros(limite)}"
+                        else -> "${g.gastos.size} ${if (g.gastos.size == 1) "gasto" else "gastos"} · $pct %"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (excedido) ROJO else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (g.clave != CLAVE_REVISAR && totalPeriodo > 0) {
+                val fraccion = when {
+                    g.clave == CLAVE_REVISAR -> null
+                    limite != null -> g.total.toFloat() / limite
+                    totalPeriodo > 0 -> g.total.toFloat() / totalPeriodo
+                    else -> null
+                }
+                if (fraccion != null) {
                     Spacer(Modifier.height(6.dp))
                     Box(
-                        Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                        Modifier.fillMaxWidth().height(if (limite != null) 6.dp else 4.dp).clip(RoundedCornerShape(3.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Box(Modifier.fillMaxWidth(g.total.toFloat() / totalPeriodo).height(4.dp).background(g.color))
+                        Box(
+                            Modifier.fillMaxWidth(fraccion.coerceIn(0f, 1f)).height(if (limite != null) 6.dp else 4.dp)
+                                .background(if (excedido) ROJO else g.color)
+                        )
                     }
                 }
             }
@@ -341,7 +373,7 @@ private fun TarjetaGrupo(g: Grupo, totalPeriodo: Long, onAbrirGasto: (Gasto) -> 
 }
 
 @Composable
-private fun FilaGasto(g: Gasto, onClick: () -> Unit) {
+fun FilaGasto(g: Gasto, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
