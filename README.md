@@ -1,6 +1,5 @@
 # app-gastos
 
-App Android personal que registra automáticamente los gastos pagados con el móvil como tarjeta (fase 1). Datos solo en el dispositivo, sin backend.
 
 Documentación y decisiones: repositorio `Garaih/gestor-central` (`apps/app-gastos.md`).
 
