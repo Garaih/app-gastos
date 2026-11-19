@@ -30,6 +30,12 @@ import androidx.compose.ui.unit.dp
 import com.garaih.appgastos.captura.CapturaRepositorio
 import com.garaih.appgastos.captura.Cartera
 import com.garaih.appgastos.captura.NotificacionCruda
+import com.garaih.appgastos.datos.Gasto
+import com.garaih.appgastos.datos.GastosRepositorio
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,6 +48,9 @@ fun PantallaCaptura(
 ) {
     val context = LocalContext.current
     val notificaciones by CapturaRepositorio.notificaciones.collectAsState()
+    val repositorio = remember { GastosRepositorio.de(context) }
+    val gastos by repositorio.gastos.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
 
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -64,6 +73,19 @@ fun PantallaCaptura(
             }
         }
         item {
+            Text("Gastos guardados (${gastos.size})", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { scope.launch { repositorio.insertarEjemplo() } }) {
+                    Text("Insertar ejemplo")
+                }
+                OutlinedButton(onClick = { scope.launch { repositorio.borrarPruebas() } }) {
+                    Text("Borrar ejemplos")
+                }
+            }
+            if (gastos.isEmpty()) Text("Aún no hay gastos.", style = MaterialTheme.typography.bodyMedium)
+        }
+        items(gastos, key = { "g" + it.id }) { g -> FilaGasto(g) }
+        item {
             Text(
                 "Notificaciones de la cartera (${notificaciones.size})",
                 style = MaterialTheme.typography.titleMedium
@@ -77,6 +99,32 @@ fun PantallaCaptura(
             }
         }
         items(notificaciones, key = { it.clave + it.momento }) { n -> TarjetaNotificacion(n) }
+    }
+}
+
+@Composable
+private fun FilaGasto(g: Gasto) {
+    val formatoImporte = remember { NumberFormat.getCurrencyInstance(Locale("es", "ES")) }
+    val formatoFecha = remember { SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(g.comercio, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    formatoFecha.format(Date(g.fecha)) + " · " + g.origen +
+                        (g.tarjeta?.let { " · ••$it" } ?: "") +
+                        (if (!g.interpretado) " · sin interpretar" else ""),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Text(
+                g.importeCentimos?.let { formatoImporte.format(it / 100.0) } ?: "¿?",
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
     }
 }
 
