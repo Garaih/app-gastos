@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local
+local.properties
+*.keystore
+*.jks
+keystore.properties
+
+# SO
+.DS_Store
+Thumbs.db
+
+# Logs y volcados (pueden contener datos reales de gastos)
+*.log
+*.hprof
