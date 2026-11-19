@@ -26,8 +26,10 @@ data class Gasto(
     /** Texto original, solo si no se pudo interpretar (para revisarlo a mano). */
     val textoCrudo: String? = null,
     val interpretado: Boolean = true,
-    /** Reservado para la interfaz con categorías (Coche, Supermercados, Casa...). */
+    /** Clave de Categoria, o null si no tiene. */
     val categoria: String? = null,
+    /** Nombre de la subcategoría dentro de la categoría, o null. */
+    val subcategoria: String? = null,
 ) {
     companion object {
         const val ORIGEN_CARTERA = "cartera"

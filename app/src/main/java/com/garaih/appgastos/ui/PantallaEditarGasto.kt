@@ -55,6 +55,7 @@ import java.time.ZoneOffset
 @Composable
 fun PantallaEditarGasto(
     gasto: Gasto?,
+    categorias: List<Categoria>,
     onGuardar: (Gasto, Boolean) -> Unit,
     onBorrar: (Gasto) -> Unit,
     mostrarConfirmarBorrado: Boolean,
@@ -64,7 +65,8 @@ fun PantallaEditarGasto(
     var importe by remember { mutableStateOf(importeEditable(gasto?.importeCentimos)) }
     var comercio by remember { mutableStateOf(gasto?.comercio?.takeIf { it != "Sin interpretar" } ?: "") }
     var fecha by remember { mutableStateOf(gasto?.fecha ?: System.currentTimeMillis()) }
-    var categoria by remember { mutableStateOf(Categoria.desdeClave(gasto?.categoria)) }
+    var categoria by remember { mutableStateOf(gasto?.categoria) }
+    var subcategoria by remember { mutableStateOf(gasto?.subcategoria) }
     var recordar by remember { mutableStateOf(true) }
     var verCalendario by remember { mutableStateOf(false) }
 
@@ -119,12 +121,31 @@ fun PantallaEditarGasto(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Categoria.entries.forEach { c ->
+            categorias.forEach { c ->
                 FilterChip(
-                    selected = categoria == c,
-                    onClick = { categoria = if (categoria == c) null else c },
+                    selected = categoria == c.clave,
+                    onClick = {
+                        categoria = if (categoria == c.clave) null else c.clave
+                        subcategoria = null
+                    },
                     label = { Text("${c.emoji}  ${c.nombre}") },
                 )
+            }
+        }
+        val subs = categorias.firstOrNull { it.clave == categoria }?.listaSubcategorias().orEmpty()
+        if (subs.isNotEmpty()) {
+            Text("Subcategoría", style = MaterialTheme.typography.titleSmall)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                subs.forEach { s ->
+                    FilterChip(
+                        selected = subcategoria == s.nombre,
+                        onClick = { subcategoria = if (subcategoria == s.nombre) null else s.nombre },
+                        label = { Text(s.nombre) },
+                    )
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -148,7 +169,8 @@ fun PantallaEditarGasto(
                         fecha = fecha,
                         importeCentimos = centimos,
                         comercio = comercio.trim(),
-                        categoria = categoria?.clave,
+                        categoria = categoria,
+                        subcategoria = if (categoria == null) null else subcategoria,
                     ),
                     recordar && categoria != null,
                 )

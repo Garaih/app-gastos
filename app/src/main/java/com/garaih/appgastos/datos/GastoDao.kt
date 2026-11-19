@@ -28,4 +28,7 @@ interface GastoDao {
 
     @Query("SELECT * FROM gastos WHERE categoria IS NULL")
     suspend fun sinCategoria(): List<Gasto>
+
+    @Query("UPDATE gastos SET categoria = NULL, subcategoria = NULL WHERE categoria = :categoria")
+    suspend fun quitarCategoria(categoria: String)
 }
