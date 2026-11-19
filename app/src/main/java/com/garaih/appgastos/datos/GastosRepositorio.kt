@@ -14,6 +14,19 @@ class GastosRepositorio(
     val objetivos: Flow<List<Objetivo>> = finanzas.objetivos()
     val inversiones: Flow<List<Inversion>> = finanzas.inversiones()
     val ingresos: Flow<List<Ingreso>> = finanzas.ingresos()
+    val ingresosFijos: Flow<List<IngresoFijo>> = finanzas.ingresosFijos()
+
+    /**
+     * Fija el importe de un ingreso fijo desde ese periodo en adelante (hasta el siguiente cambio).
+     * Si se renombra, el nuevo nombre se aplica a todo su historial.
+     */
+    suspend fun cambiarIngresoFijo(conceptoAnterior: String?, concepto: String, importeCentimos: Long, periodo: Periodo) {
+        if (conceptoAnterior != null && conceptoAnterior != concepto) finanzas.renombrarIngresoFijo(conceptoAnterior, concepto)
+        val k = IngresosFijos.clave(periodo)
+        val existente = finanzas.ingresoFijo(concepto, k)
+        if (existente != null) finanzas.actualizarIngresoFijo(existente.copy(importeCentimos = importeCentimos))
+        else finanzas.insertarIngresoFijo(IngresoFijo(concepto = concepto, importeCentimos = importeCentimos, desdeMes = k))
+    }
 
     suspend fun presupuestoDe(categoria: String): Long? = finanzas.presupuesto(categoria)?.limiteCentimos
 

@@ -19,7 +19,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = codigoVersion
-        versionName = "0.4.0"
+        versionName = "0.5.0"
     }
 
     // En GitHub Actions se firma con la clave de depuración del PC de Javier (secreto),

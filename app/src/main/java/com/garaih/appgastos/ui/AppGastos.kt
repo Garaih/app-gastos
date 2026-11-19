@@ -83,6 +83,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     val objetivos by repositorio.objetivos.collectAsState(initial = emptyList())
     val inversiones by repositorio.inversiones.collectAsState(initial = emptyList())
     val ingresos by repositorio.ingresos.collectAsState(initial = emptyList())
+    val ingresosFijos by repositorio.ingresosFijos.collectAsState(initial = emptyList())
     val mapaPresupuestos = presupuestos.associate { it.categoria to it.limiteCentimos }
     val scope = rememberCoroutineScope()
 
@@ -241,11 +242,13 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             Pantalla.Ahorro -> PantallaAhorro(
                 gastos = gastos,
                 ingresos = ingresos,
+                ingresosFijos = ingresosFijos,
                 objetivos = objetivos,
                 inversiones = inversiones,
                 periodo = periodo,
                 onCambiarPeriodo = { periodo = it },
                 acciones = AccionesAhorro(
+                    cambiarIngresoFijo = { anterior, concepto, importe, p -> scope.launch { repositorio.cambiarIngresoFijo(anterior, concepto, importe, p) } },
                     guardarIngreso = { scope.launch { repositorio.guardarIngreso(it) } },
                     borrarIngreso = { scope.launch { repositorio.borrarIngreso(it) } },
                     guardarObjetivo = { scope.launch { repositorio.guardarObjetivo(it) } },

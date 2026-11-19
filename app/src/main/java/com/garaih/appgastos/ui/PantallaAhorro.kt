@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.Ingreso
+import com.garaih.appgastos.datos.IngresoFijo
+import com.garaih.appgastos.datos.IngresosFijos
 import com.garaih.appgastos.datos.Inversion
 import com.garaih.appgastos.datos.Objetivo
 import com.garaih.appgastos.datos.Periodo
@@ -62,6 +64,8 @@ private val COLORES_TIPO = listOf(
 
 /** Acciones de la pantalla de ahorro (las ejecuta AppGastos con el repositorio). */
 class AccionesAhorro(
+    /** (concepto anterior o null si es nuevo, concepto, importe en céntimos, periodo desde el que aplica) */
+    val cambiarIngresoFijo: (String?, String, Long, Periodo) -> Unit,
     val guardarIngreso: (Ingreso) -> Unit,
     val borrarIngreso: (Ingreso) -> Unit,
     val guardarObjetivo: (Objetivo) -> Unit,
@@ -71,6 +75,7 @@ class AccionesAhorro(
 )
 
 private sealed interface Dialogo {
+    data class EditFijo(val fijo: IngresoFijo?) : Dialogo
     data class EditIngreso(val ingreso: Ingreso?) : Dialogo
     data class EditObjetivo(val objetivo: Objetivo?) : Dialogo
     data class Aportar(val objetivo: Objetivo) : Dialogo
@@ -81,6 +86,7 @@ private sealed interface Dialogo {
 fun PantallaAhorro(
     gastos: List<Gasto>,
     ingresos: List<Ingreso>,
+    ingresosFijos: List<IngresoFijo>,
     objetivos: List<Objetivo>,
     inversiones: List<Inversion>,
     periodo: Periodo,
@@ -91,7 +97,8 @@ fun PantallaAhorro(
     var dialogo by remember { mutableStateOf<Dialogo?>(null) }
     val actual = Periodo.que(LocalDate.now(), periodo.diaInicio)
     val ingresosPeriodo = ingresos.filter { periodo.contiene(aFechaLocal(it.fecha)) }
-    val totalIngresos = ingresosPeriodo.sumOf { it.importeCentimos }
+    val fijos = IngresosFijos.vigentes(ingresosFijos, periodo)
+    val totalIngresos = ingresosPeriodo.sumOf { it.importeCentimos } + fijos.sumOf { it.importeCentimos }
     val totalGastos = gastos.filter { periodo.contiene(aFechaLocal(it.fecha)) }.sumOf { it.importeCentimos ?: 0L }
     val ahorro = totalIngresos - totalGastos
 
@@ -107,7 +114,10 @@ fun PantallaAhorro(
             Seccion(
                 "Balance del periodo",
                 accion = {
-                    TextButton(onClick = { dialogo = Dialogo.EditIngreso(null) }) { Text("+ Ingreso") }
+                    Row {
+                        TextButton(onClick = { dialogo = Dialogo.EditFijo(null) }) { Text("+ Fijo") }
+                        TextButton(onClick = { dialogo = Dialogo.EditIngreso(null) }) { Text("+ Puntual") }
+                    }
                 },
             ) {
                 FilaDato("Ingresos", euros(totalIngresos), colorValor = VERDE)
@@ -128,10 +138,26 @@ fun PantallaAhorro(
                     BarraProgreso((tasa).coerceIn(0.0, 1.0).toFloat(), VERDE)
                 } else {
                     Text(
-                        "Añade tus ingresos (nómina, extras...) para ver cuánto ahorras cada periodo.",
+                        "Añade tu nómina como ingreso fijo (se repite cada periodo) y los extras como puntuales para ver cuánto ahorras.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                fijos.forEach { f ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { dialogo = Dialogo.EditFijo(f) }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("🔁 ${f.concepto}", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Fijo cada periodo · toca para cambiarlo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text("+" + euros(f.importeCentimos), color = VERDE)
+                    }
                 }
                 ingresosPeriodo.forEach { i ->
                     Row(
@@ -237,6 +263,7 @@ fun PantallaAhorro(
     }
 
     when (val d = dialogo) {
+        is Dialogo.EditFijo -> DialogoIngresoFijo(d.fijo, periodo, onCerrar = { dialogo = null }, acciones)
         is Dialogo.EditIngreso -> DialogoIngreso(d.ingreso, onCerrar = { dialogo = null }, acciones)
         is Dialogo.EditObjetivo -> DialogoObjetivo(d.objetivo, onCerrar = { dialogo = null }, acciones)
         is Dialogo.Aportar -> DialogoAportar(d.objetivo, onCerrar = { dialogo = null }, acciones)
@@ -300,14 +327,65 @@ private fun FilaObjetivo(o: Objetivo, onEditar: () -> Unit, onAportar: () -> Uni
 // ---------- Diálogos ----------
 
 @Composable
+private fun DialogoIngresoFijo(fijo: IngresoFijo?, periodo: Periodo, onCerrar: () -> Unit, acciones: AccionesAhorro) {
+    var concepto by remember { mutableStateOf(fijo?.concepto ?: "Nómina") }
+    var importe by remember { mutableStateOf(importeEditable(fijo?.importeCentimos)) }
+    var confirmarQuitar by remember { mutableStateOf(false) }
+    val c = centimosDe(importe)
+    val desde = nombrePeriodo(periodo)
+    if (confirmarQuitar && fijo != null) {
+        AlertDialog(
+            onDismissRequest = onCerrar,
+            title = { Text("¿Dejar de contar \"${fijo.concepto}\"?") },
+            text = { Text("Desde el periodo $desde no se sumará. Los periodos anteriores no cambian.") },
+            confirmButton = {
+                TextButton(onClick = { acciones.cambiarIngresoFijo(fijo.concepto, fijo.concepto, 0, periodo); onCerrar() }) {
+                    Text("Dejar de contar", color = ROJO)
+                }
+            },
+            dismissButton = { TextButton(onClick = onCerrar) { Text("Cancelar") } },
+        )
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onCerrar,
+        title = { Text(if (fijo == null) "Nuevo ingreso fijo" else "Cambiar ingreso fijo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(concepto, { concepto = it }, label = { Text("Concepto") }, singleLine = true)
+                CampoImporte(importe, { importe = it }, "Importe por periodo")
+                Text(
+                    "Se aplica desde este periodo ($desde) y queda como importe por defecto para los siguientes. " +
+                        "Los periodos anteriores conservan su importe.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = c != null && c > 0 && concepto.isNotBlank(),
+                onClick = { acciones.cambiarIngresoFijo(fijo?.concepto, concepto.trim(), c!!, periodo); onCerrar() },
+            ) { Text("Guardar") }
+        },
+        dismissButton = {
+            Row {
+                if (fijo != null) TextButton(onClick = { confirmarQuitar = true }) { Text("Quitar", color = ROJO) }
+                TextButton(onClick = onCerrar) { Text("Cancelar") }
+            }
+        },
+    )
+}
+
+@Composable
 private fun DialogoIngreso(ingreso: Ingreso?, onCerrar: () -> Unit, acciones: AccionesAhorro) {
-    var concepto by remember { mutableStateOf(ingreso?.concepto ?: "Nómina") }
+    var concepto by remember { mutableStateOf(ingreso?.concepto ?: "") }
     var importe by remember { mutableStateOf(importeEditable(ingreso?.importeCentimos)) }
     var fecha by remember { mutableStateOf(ingreso?.fecha ?: System.currentTimeMillis()) }
     val c = centimosDe(importe)
     AlertDialog(
         onDismissRequest = onCerrar,
-        title = { Text(if (ingreso == null) "Nuevo ingreso" else "Editar ingreso") },
+        title = { Text(if (ingreso == null) "Nuevo ingreso puntual" else "Editar ingreso puntual") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(concepto, { concepto = it }, label = { Text("Concepto") }, singleLine = true)

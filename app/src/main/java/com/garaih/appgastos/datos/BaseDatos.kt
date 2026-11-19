@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Gasto::class, ReglaCategoria::class, Categoria::class,
-        Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class,
+        Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class, IngresoFijo::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class BaseDatos : RoomDatabase() {
@@ -65,6 +65,15 @@ abstract class BaseDatos : RoomDatabase() {
             }
         }
 
+        private val MIGRACION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ingresos_fijos` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`concepto` TEXT NOT NULL, `importeCentimos` INTEGER NOT NULL, `desdeMes` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         private fun crearTablaCategorias(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS `categorias` (`clave` TEXT NOT NULL, `nombre` TEXT NOT NULL, " +
@@ -96,7 +105,7 @@ abstract class BaseDatos : RoomDatabase() {
                 instancia ?: Room.databaseBuilder(
                     context.applicationContext, BaseDatos::class.java, "gastos.db"
                 )
-                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4)
+                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5)
                     .addCallback(AL_CREAR)
                     .build().also { instancia = it }
             }
