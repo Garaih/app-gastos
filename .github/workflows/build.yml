@@ -26,8 +26,8 @@ jobs:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
           if [ -n "$DEBUG_KEYSTORE_B64" ]; then
-            mkdir -p ~/.android
-            echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+            echo "FIRMA_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
             echo "FIRMA_OK=1" >> "$GITHUB_ENV"
           else
             echo "::warning::Falta el secreto DEBUG_KEYSTORE_B64: se compila pero no se publica."
@@ -38,6 +38,18 @@ jobs:
 
       - name: Tests y compilación
         run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+
+      # Huella SHA-256 (pública) del certificado de depuración del PC de Javier.
+      - name: Comprobar firma
+        if: env.FIRMA_OK == '1'
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          HUELLA=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep -m1 'SHA-256' | awk '{print $NF}')
+          echo "Huella: $HUELLA"
+          if [ "$HUELLA" != "e1d46becb276efe8b9c066650b526e73fb329ae5e52206b592db8ee76950a6e7" ]; then
+            echo "::error::El APK no está firmado con la clave esperada; no se publica."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

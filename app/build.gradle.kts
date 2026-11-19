@@ -22,6 +22,19 @@ android {
         versionName = "0.4.0"
     }
 
+    // En GitHub Actions se firma con la clave de depuración del PC de Javier (secreto),
+    // para que las versiones publicadas se instalen encima de las de Android Studio.
+    signingConfigs {
+        getByName("debug") {
+            System.getenv("FIRMA_KEYSTORE")?.let { ruta ->
+                storeFile = file(ruta)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
