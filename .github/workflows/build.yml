@@ -1,4 +1,4 @@
-name: Compilar APK
+name: Compilar y publicar APK
 
 on:
   push:
@@ -18,19 +18,44 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Tests y compilación debug
+
+      # Misma clave de depuración que Android Studio en el PC de Javier, para que la
+      # versión publicada se instale encima de la existente sin perder datos.
+      - name: Clave de firma
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "FIRMA_OK=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Falta el secreto DEBUG_KEYSTORE_B64: se compila pero no se publica."
+          fi
+
+      - name: Código de versión (minutos desde 2026-01-01)
+        run: echo "VERSION_CODE=$(( ($(date -u +%s) - 1767225600) / 60 ))" >> "$GITHUB_ENV"
+
+      - name: Tests y compilación
         run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-gastos-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
-      - name: Publicar APK en la release "debug"
+
+      - name: Publicar versión (la consulta la app desde Ajustes > Buscar actualizaciones)
+        if: env.FIRMA_OK == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk app-gastos-debug.apk
+          NOMBRE=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/debug/app-debug.apk app-gastos.apk
+          git log -1 --pretty=%B > notas.txt
+          gh release create "v$VERSION_CODE" app-gastos.apk \
+            --title "$NOMBRE ($VERSION_CODE)" --notes-file notas.txt --latest
+          # Conserva solo las 5 últimas versiones.
+          gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^v' | tail -n +6 | \
+            xargs -r -I{} gh release delete {} --yes --cleanup-tag
           gh release delete debug --yes --cleanup-tag || true
-          gh release create debug app-gastos-debug.apk --prerelease \
-            --title "APK de depuración (último main)" \
-            --notes "Compilado desde ${GITHUB_SHA::7}. Instalar en el móvil abriendo el APK."

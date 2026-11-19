@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -92,6 +93,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     var menuAbierto by remember { mutableStateOf(false) }
     var confirmarBorrado by remember { mutableStateOf(false) }
     var dialogoPeriodo by remember { mutableStateOf(false) }
+    var dialogoActualizar by remember { mutableStateOf(false) }
 
     val enPestana = pantalla in PESTANAS
 
@@ -172,6 +174,18 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                                 text = { Text("Diagnóstico de captura") },
                                 leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
                                 onClick = { menuAbierto = false; pantalla = Pantalla.Diagnostico },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Buscar actualizaciones") },
+                                leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                                trailingIcon = {
+                                    Text(
+                                        com.garaih.appgastos.BuildConfig.VERSION_NAME,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                },
+                                onClick = { menuAbierto = false; dialogoActualizar = true },
                             )
                         }
                     }
@@ -290,6 +304,8 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             Pantalla.Diagnostico -> PantallaDiagnostico(mod)
         }
     }
+
+    if (dialogoActualizar) DialogoActualizar(onCerrar = { dialogoActualizar = false })
 
     if (dialogoPeriodo) {
         var valor by remember { mutableFloatStateOf(diaInicio.toFloat()) }

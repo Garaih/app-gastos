@@ -4,6 +4,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Código de versión = minutos desde 2026-01-01 (UTC). Crece solo en cada compilación,
+// tanto en Android Studio como en GitHub Actions, así una versión nueva siempre se
+// instala encima de la anterior. GitHub Actions lo pasa en VERSION_CODE.
+val codigoVersion: Int = System.getenv("VERSION_CODE")?.toIntOrNull()
+    ?: ((System.currentTimeMillis() / 1000 - 1767225600L) / 60).toInt()
+
 android {
     namespace = "com.garaih.appgastos"
     compileSdk = 36
@@ -12,8 +18,8 @@ android {
         applicationId = "com.garaih.appgastos"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = codigoVersion
+        versionName = "0.4.0"
     }
 
     buildTypes {
@@ -33,6 +39,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

@@ -57,7 +57,7 @@ fun PantallaPermisos(
                 Text(
                     "Necesario para registrar solos los pagos con el móvil. " +
                         "La app solo lee las notificaciones de Google Wallet e ignora el resto. " +
-                        "Nada sale del teléfono.",
+                        "Tus gastos nunca salen del teléfono.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

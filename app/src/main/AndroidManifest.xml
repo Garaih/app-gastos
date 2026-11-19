@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Sin permiso de INTERNET: los datos no salen del móvil. -->
+    <!-- Internet SOLO para buscar y descargar actualizaciones desde GitHub.
+         Los gastos nunca salen del móvil. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Para comprobar si Google Wallet está instalada (visibilidad de paquetes, Android 11+). -->
     <queries>
@@ -22,6 +25,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Comparte el APK descargado con el instalador del sistema. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.archivos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/rutas_archivos" />
+        </provider>
 
         <!-- Lee notificaciones; el código descarta todo lo que no sea de la cartera. -->
         <service
