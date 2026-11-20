@@ -53,6 +53,13 @@ import androidx.compose.ui.unit.sp
 import com.garaih.appgastos.datos.Categoria
 import com.garaih.appgastos.datos.Gasto
 import com.garaih.appgastos.datos.Periodo
+import com.garaih.appgastos.datos.Ingreso
+import com.garaih.appgastos.datos.IngresoFijo
+import com.garaih.appgastos.datos.IngresosFijos
+import com.garaih.appgastos.datos.Recurrencia
+import com.garaih.appgastos.datos.Recurrente
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -76,16 +83,25 @@ fun PantallaInicio(
     gastos: List<Gasto>,
     categorias: List<Categoria>,
     presupuestos: Map<String, Long>,
+    ingresos: List<Ingreso>,
+    ingresosFijos: List<IngresoFijo>,
+    recurrentes: List<Recurrente>,
     periodo: Periodo,
     onCambiarPeriodo: (Periodo) -> Unit,
     onAbrirGasto: (Gasto) -> Unit,
+    onIrAhorro: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hoy = LocalDate.now()
     val periodoActual = Periodo.que(hoy, periodo.diaInicio)
+    val esActual = periodo == periodoActual
     val delPeriodo = remember(gastos, periodo) { gastos.filter { periodo.contiene(aFechaLocal(it.fecha)) } }
     val grupos = remember(delPeriodo, categorias, presupuestos) { agrupar(delPeriodo, categorias, presupuestos) }
     val total = delPeriodo.sumOf { it.importeCentimos ?: 0L }
+    val totalIngresos = remember(ingresos, ingresosFijos, periodo) {
+        ingresos.filter { periodo.contiene(aFechaLocal(it.fecha)) }.sumOf { it.importeCentimos } +
+            IngresosFijos.vigentes(ingresosFijos, periodo).sumOf { it.importeCentimos }
+    }
     val historial = remember(gastos, periodo) {
         (5 downTo 0).map { n ->
             var p = periodo
@@ -93,11 +109,19 @@ fun PantallaInicio(
             p to gastos.filter { p.contiene(aFechaLocal(it.fecha)) }.sumOf { it.importeCentimos ?: 0L }
         }
     }
+    // Cargos recurrentes que aún faltan en este periodo (solo en el periodo en curso).
+    val proximos = remember(recurrentes, periodo) {
+        if (!esActual) emptyList() else recurrentes.mapNotNull { r ->
+            Recurrencia.siguiente(r)?.takeIf { periodo.contiene(it.fecha) && !it.fecha.isBefore(hoy) }?.let { r to it }
+        }.sortedBy { it.second.fecha }
+    }
+    val pendienteRecurrente = proximos.sumOf { it.first.importeCentimos }
+    val porClave = categorias.associateBy { it.clave }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             SelectorPeriodo(
@@ -107,31 +131,105 @@ fun PantallaInicio(
             )
         }
         item {
-            val diasRestantes = if (periodo == periodoActual) ChronoUnit.DAYS.between(hoy, periodo.finExclusivo) else null
-            TarjetaTotal(
-                total = total,
+            TarjetaBalance(
+                ingresos = totalIngresos,
+                gastos = total,
+                pendienteRecurrente = pendienteRecurrente,
                 numero = delPeriodo.size,
-                periodo = periodo,
+                diasRestantes = if (esActual) ChronoUnit.DAYS.between(hoy, periodo.finExclusivo) else null,
                 totalAnterior = historial.getOrNull(4)?.second ?: 0L,
-                diasRestantes = diasRestantes,
                 presupuestoTotal = presupuestos.values.sum(),
                 grupos = grupos.filter { it.clave != CLAVE_REVISAR },
+                onIrAhorro = onIrAhorro,
             )
         }
-        item { TarjetaHistorial(historial, periodo, onCambiarPeriodo) }
+        if (proximos.isNotEmpty()) {
+            item {
+                Seccion("Próximos cargos del periodo", accion = {
+                    Text(euros(pendienteRecurrente), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                }) {
+                    proximos.take(5).forEach { (r, c) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.size(34.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(r.categoria?.let { porClave[it]?.emoji } ?: "🔁", fontSize = 16.sp)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(r.comercio, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "Día ${c.fecha.dayOfMonth}" + (r.plazos?.let { " · plazo ${c.plazo} de $it" } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(euros(r.importeCentimos), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        }
         if (delPeriodo.isEmpty()) {
             item { EstadoVacio() }
         } else {
             item {
-                Text(
-                    "Por categoría",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp, start = 4.dp)
-                )
+                Seccion("Últimos movimientos") {
+                    Column {
+                        delPeriodo.sortedByDescending { it.fecha }.take(4).forEach { g ->
+                            FilaMovimiento(g, porClave[g.categoria], onClick = { onAbrirGasto(g) })
+                        }
+                    }
+                }
             }
+            item { TituloSeccion("Por categoría") }
             items(grupos, key = { it.clave }) { g -> TarjetaGrupo(g, total, onAbrirGasto) }
         }
+        item { TarjetaHistorial(historial, periodo, onCambiarPeriodo) }
+    }
+}
+
+@Composable
+private fun TituloSeccion(texto: String) {
+    Text(
+        texto,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+    )
+}
+
+/** Fila compacta con icono de categoría, para "Últimos movimientos". */
+@Composable
+private fun FilaMovimiento(g: Gasto, cat: Categoria?, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val color = cat?.let { Color(it.color) } ?: Color(0xFF94A3B8)
+        Box(
+            Modifier.size(38.dp).clip(CircleShape).background(color.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) { Text(cat?.emoji ?: if (g.importeCentimos == null) "⚠️" else "❔", fontSize = 18.sp) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(g.comercio, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(fechaHora(g.fecha), g.subcategoria ?: cat?.nombre, if (g.recurrenteId != null) "🔁" else null)
+                    .joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            g.importeCentimos?.let { "−" + euros(it) } ?: "¿?",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -180,58 +278,94 @@ fun SelectorPeriodo(periodo: Periodo, puedeAvanzar: Boolean, onCambiar: (Periodo
 }
 
 @Composable
-private fun TarjetaTotal(
-    total: Long,
+private fun TarjetaBalance(
+    ingresos: Long,
+    gastos: Long,
+    pendienteRecurrente: Long,
     numero: Int,
-    periodo: Periodo,
-    totalAnterior: Long,
     diasRestantes: Long?,
+    totalAnterior: Long,
     presupuestoTotal: Long,
     grupos: List<Grupo>,
+    onIrAhorro: () -> Unit,
 ) {
-    Card(
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
+    val primario = MaterialTheme.colorScheme.primary
+    val fondo = Brush.linearGradient(listOf(primario, lerp(primario, Color(0xFF0B3B5C), 0.55f)))
+    val blanco = Color.White
+    val tenue = Color.White.copy(alpha = 0.75f)
+    Box(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(fondo).padding(20.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Text(
-                if (diasRestantes != null) "Gastado en este periodo" else "Gastado en el periodo",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(euros(total), fontSize = 40.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (ingresos > 0) {
+                val disponible = ingresos - gastos
+                Text(if (disponible >= 0) "Te queda este periodo" else "Te has pasado", color = tenue, style = MaterialTheme.typography.bodyMedium)
+                Text(euros(kotlin.math.abs(disponible)), color = blanco, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+                if (diasRestantes != null && diasRestantes > 0 && disponible > 0) {
+                    val libre = (disponible - pendienteRecurrente).coerceAtLeast(0)
+                    Text(
+                        "≈ ${euros(libre / diasRestantes)} al día durante ${if (diasRestantes == 1L) "1 día" else "$diasRestantes días"}" +
+                            if (pendienteRecurrente > 0) " (descontando ${euros(pendienteRecurrente)} de cargos fijos)" else "",
+                        color = tenue,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                // Gastado frente a ingresos
+                val fraccion = (gastos.toFloat() / ingresos).coerceIn(0f, 1f)
+                Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = 0.22f))) {
+                    Box(
+                        Modifier.fillMaxWidth(fraccion).height(10.dp).clip(RoundedCornerShape(5.dp))
+                            .background(if (gastos > ingresos) Color(0xFFFCA5A5) else blanco)
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Dato("Ingresos", euros(ingresos), Modifier.weight(1f))
+                    Dato("Gastos", euros(gastos), Modifier.weight(1f))
+                    Dato("Ahorro", "${((ingresos - gastos) * 100 / ingresos).coerceAtLeast(-999)} %", Modifier.weight(1f))
+                }
+            } else {
+                Text("Gastado este periodo", color = tenue, style = MaterialTheme.typography.bodyMedium)
+                Text(euros(gastos), color = blanco, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.18f))
+                        .clickable(onClick = onIrAhorro).padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Añade tu nómina para ver el balance  →", color = blanco, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             val partes = buildList {
                 add("$numero ${if (numero == 1) "gasto" else "gastos"}")
                 if (totalAnterior > 0) {
-                    val dif = total - totalAnterior
+                    val dif = gastos - totalAnterior
                     add("${if (dif >= 0) "+" else "−"}${euros(kotlin.math.abs(dif))} vs anterior")
                 }
-                if (diasRestantes != null) add(if (diasRestantes == 1L) "queda 1 día" else "quedan $diasRestantes días")
+                if (presupuestoTotal > 0) {
+                    val queda = presupuestoTotal - gastos
+                    add(if (queda >= 0) "presupuesto: quedan ${euros(queda)}" else "presupuesto superado")
+                }
             }
-            Text(partes.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            if (presupuestoTotal > 0) {
-                val queda = presupuestoTotal - total
-                Text(
-                    if (queda >= 0) "Presupuesto ${euros(presupuestoTotal)} · disponible ${euros(queda)}"
-                    else "Presupuesto ${euros(presupuestoTotal)} · superado en ${euros(-queda)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            if (total > 0 && grupos.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))
-                        .background(Color.White.copy(alpha = 0.25f))
-                ) {
+            Text(partes.joinToString(" · "), color = tenue, style = MaterialTheme.typography.bodySmall)
+            if (gastos > 0 && grupos.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))) {
                     grupos.filter { it.total > 0 }.forEach { g ->
-                        Box(Modifier.weight(g.total.toFloat() / total).height(10.dp).background(g.color))
+                        Box(Modifier.weight(g.total.toFloat() / gastos).height(8.dp).background(g.color))
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun Dato(etiqueta: String, valor: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(etiqueta, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelMedium)
+        Text(valor, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 

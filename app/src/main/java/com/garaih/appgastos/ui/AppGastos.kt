@@ -119,7 +119,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     BackHandler(enabled = pantalla != Pantalla.Inicio) { volver() }
 
     val titulo = when (val p = pantalla) {
-        Pantalla.Inicio -> "Mis gastos"
+        Pantalla.Inicio -> "Resumen"
         Pantalla.Analisis -> "Análisis"
         Pantalla.Ahorro -> "Ahorro e inversiones"
         is Pantalla.Editar -> if (p.gasto == null) "Nuevo gasto" else "Editar gasto"
@@ -212,7 +212,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             if (enPestana) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest) {
                     listOf(
-                        Triple(Pantalla.Inicio, "🧾", "Gastos"),
+                        Triple(Pantalla.Inicio, "🏠", "Resumen"),
                         Triple(Pantalla.Analisis, "📊", "Análisis"),
                         Triple(Pantalla.Ahorro, "🐷", "Ahorro"),
                     ).forEach { (destino, icono, nombre) ->
@@ -242,9 +242,13 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 gastos = gastos,
                 categorias = categorias,
                 presupuestos = mapaPresupuestos,
+                ingresos = ingresos,
+                ingresosFijos = ingresosFijos,
+                recurrentes = recurrentes,
                 periodo = periodo,
                 onCambiarPeriodo = { periodo = it },
                 onAbrirGasto = { pantalla = Pantalla.Editar(it) },
+                onIrAhorro = { pantalla = Pantalla.Ahorro; pestana = Pantalla.Ahorro },
                 modifier = mod,
             )
             Pantalla.Analisis -> PantallaAnalisis(
