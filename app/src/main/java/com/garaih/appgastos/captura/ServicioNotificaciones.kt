@@ -25,10 +25,23 @@ class ServicioNotificaciones : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        // Recoge las de la cartera que ya estuvieran en la bandeja (los duplicados se ignoran).
-        runCatching { activeNotifications }.getOrNull()
-            ?.filter { it.packageName in paquetes() }
-            ?.forEach { procesar(it) }
+        instancia = this
+        preferencias.marcarLectorConectado()
+        // Recoge las que ya estuvieran en la bandeja (los duplicados se ignoran).
+        scope.launch { revisarBandeja() }
+    }
+
+    override fun onListenerDisconnected() {
+        if (instancia === this) instancia = null
+        super.onListenerDisconnected()
+    }
+
+    /** Procesa los avisos que hay ahora en la bandeja. Devuelve (avisos revisados, gastos nuevos). */
+    suspend fun revisarBandeja(): Pair<Int, Int> {
+        val lista = runCatching { activeNotifications }.getOrNull().orEmpty().filter { it.packageName in paquetes() }
+        var nuevos = 0
+        lista.forEach { if (procesarYGuardar(it)) nuevos++ }
+        return lista.size to nuevos
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -37,14 +50,20 @@ class ServicioNotificaciones : NotificationListenerService() {
     }
 
     override fun onDestroy() {
+        if (instancia === this) instancia = null
         scope.cancel()
         super.onDestroy()
     }
 
     private fun procesar(sbn: StatusBarNotification) {
+        scope.launch { procesarYGuardar(sbn) }
+    }
+
+    /** true si se ha guardado un gasto nuevo. */
+    private suspend fun procesarYGuardar(sbn: StatusBarNotification): Boolean {
         val notificacion = sbn.notification
         // Las notificaciones de resumen de grupo no son pagos.
-        if (notificacion.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (notificacion.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
 
         val extras = notificacion.extras
         fun texto(clave: String): String? = extras.getCharSequence(clave)?.toString()
@@ -61,19 +80,24 @@ class ServicioNotificaciones : NotificationListenerService() {
         )
         if (sbn.packageName == Correo.PAQUETE_GMAIL) {
             // Solo remitentes elegidos y solo si parece un recibo con importe; si no, se ignora del todo.
-            Correo.remitenteDe(cruda.titulo, Correo.remitentes(preferencias.remitentesCorreo)) ?: return
+            Correo.remitenteDe(cruda.titulo, Correo.remitentes(preferencias.remitentesCorreo)) ?: return false
             val contenido = listOfNotNull(cruda.texto, cruda.textoGrande, cruda.subTexto).joinToString("\n")
-            if (!Correo.pareceRecibo(contenido)) return
-            if (com.garaih.appgastos.datos.ParserCartera.buscarImporte(contenido) == null) return
+            if (!Correo.pareceRecibo(contenido)) return false
+            if (com.garaih.appgastos.datos.ParserCartera.buscarImporte(contenido) == null) return false
         }
         CapturaRepositorio.anadir(cruda)
-        scope.launch {
-            // Misma notificación y mismo instante = mismo pago, aunque se reenvíe o actualice.
-            repositorio.guardarDesdeNotificacion(
-                cruda,
-                claveOrigen = "${sbn.key}|$momento",
-                origen = Cartera.origenDe(sbn.packageName),
-            )
-        }
+        preferencias.marcarAvisoRecibido()
+        // Misma notificación y mismo instante = mismo pago, aunque se reenvíe o actualice.
+        return repositorio.guardarDesdeNotificacion(
+            cruda,
+            claveOrigen = "${sbn.key}|$momento",
+            origen = Cartera.origenDe(sbn.packageName),
+        )
+    }
+
+    companion object {
+        /** Servicio en marcha, o null si el sistema lo ha parado (p. ej. ahorro de batería de MIUI). */
+        @Volatile var instancia: ServicioNotificaciones? = null
+            private set
     }
 }

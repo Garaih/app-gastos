@@ -25,7 +25,17 @@ class Preferencias(context: Context) {
         get() = prefs.getString(CLAVE_REMITENTES, null) ?: com.garaih.appgastos.captura.Correo.REMITENTES_POR_DEFECTO
         set(valor) = prefs.edit().putString(CLAVE_REMITENTES, valor).apply()
 
+    /** Momento en que el sistema conectó por última vez el lector de notificaciones. */
+    val lectorConectado: Long get() = prefs.getLong(CLAVE_CONECTADO, 0L)
+    fun marcarLectorConectado() = prefs.edit().putLong(CLAVE_CONECTADO, System.currentTimeMillis()).apply()
+
+    /** Último aviso aceptado (Wallet, Santander o correo). */
+    val ultimoAviso: Long get() = prefs.getLong(CLAVE_ULTIMO_AVISO, 0L)
+    fun marcarAvisoRecibido() = prefs.edit().putLong(CLAVE_ULTIMO_AVISO, System.currentTimeMillis()).apply()
+
     private companion object {
+        const val CLAVE_CONECTADO = "lector_conectado"
+        const val CLAVE_ULTIMO_AVISO = "ultimo_aviso"
         const val CLAVE_CORREO = "leer_correo"
         const val CLAVE_REMITENTES = "remitentes_correo"
         const val CLAVE_DIA = "dia_inicio_periodo"

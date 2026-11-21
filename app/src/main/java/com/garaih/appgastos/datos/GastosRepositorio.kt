@@ -129,8 +129,9 @@ class GastosRepositorio(
         origen: String = Gasto.ORIGEN_CARTERA,
     ): Boolean {
         val r = ParserCartera.interpretar(n.titulo, n.texto, n.textoGrande, n.subTexto)
-        val comercio = r.comercio ?: "Sin interpretar"
+        val comercio = r.comercio ?: Duplicados.SIN_COMERCIO
         val sug = if (r.comercio != null) sugerencia(comercio) else null
+        val crudo = listOfNotNull(n.titulo, n.texto, n.textoGrande, n.subTexto).joinToString(" | ")
         val gasto = Gasto(
             fecha = n.momento,
             importeCentimos = r.importeCentimos,
@@ -139,22 +140,26 @@ class GastosRepositorio(
             tarjeta = r.tarjeta,
             origen = origen,
             claveOrigen = claveOrigen,
-            textoCrudo = if (r.interpretado) null else
-                listOfNotNull(n.titulo, n.texto, n.textoGrande, n.subTexto).joinToString(" | "),
+            textoCrudo = when {
+                r.interpretado -> null
+                r.importeExtranjero != null ->
+                    "Pago en otra moneda (${r.importeExtranjero}). Se completará con el importe en euros del aviso del banco; si no llega, ponlo a mano."
+                else -> crudo
+            },
             interpretado = r.interpretado,
             categoria = sug?.categoria,
             subcategoria = sug?.subcategoria,
         )
-        // El mismo pago puede llegar por Wallet y por el banco: se guarda una sola vez.
+        // Si es el mismo pago que otro aviso ya guardado (Wallet, banco, correo o recibo recurrente),
+        // se completa el existente en vez de duplicarlo.
         val cercanos = dao.entre(gasto.fecha - Duplicados.VENTANA_MAXIMA_MS, gasto.fecha + Duplicados.VENTANA_MAXIMA_MS)
-        Duplicados.buscarDeNotificacion(gasto, cercanos)?.let { existente ->
-            var mejorado = existente
-            if (existente.tarjeta == null && gasto.tarjeta != null) mejorado = mejorado.copy(tarjeta = gasto.tarjeta)
-            // El correo suele traer un nombre más claro que el aviso del banco.
-            if (existente.origen == Gasto.ORIGEN_SANTANDER && gasto.origen == Gasto.ORIGEN_CORREO && r.comercio != null) {
-                mejorado = mejorado.copy(comercio = comercio, categoria = mejorado.categoria ?: gasto.categoria, subcategoria = mejorado.subcategoria ?: gasto.subcategoria)
+        val existente = Duplicados.buscarDeNotificacion(gasto, cercanos) ?: Duplicados.buscarPorTarjeta(gasto, cercanos)
+        if (existente != null) {
+            var unido = Duplicados.unir(existente, gasto)
+            if (unido.comercio != existente.comercio && existente.categoria == null) {
+                sugerencia(unido.comercio)?.let { unido = unido.copy(categoria = it.categoria, subcategoria = it.subcategoria) }
             }
-            if (mejorado != existente) dao.actualizar(mejorado)
+            if (unido != existente) dao.actualizar(unido)
             return false
         }
         return dao.insertar(gasto) != -1L

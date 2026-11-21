@@ -56,6 +56,8 @@ import com.garaih.appgastos.datos.Periodo
 import com.garaih.appgastos.datos.Preferencias
 import com.garaih.appgastos.datos.Recurrente
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import com.garaih.appgastos.captura.ServicioNotificaciones
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
@@ -102,6 +104,8 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     var dialogoPeriodo by remember { mutableStateOf(false) }
     var dialogoActualizar by remember { mutableStateOf(false) }
     var recurrenteEditando by remember { mutableStateOf<Recurrente?>(null) }
+    /** Resultado de "Revisar notificaciones ahora": (texto, lector parado). */
+    var revision by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     /** Alta manual pendiente de confirmar porque se parece a un gasto ya guardado. */
     var duplicado by remember { mutableStateOf<Triple<Gasto, Gasto, () -> Unit>?>(null) }
 
@@ -180,6 +184,15 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                                 onClick = { menuAbierto = false; dialogoPeriodo = true },
                             )
                             HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Revisar notificaciones ahora") },
+                                leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                                onClick = {
+                                    menuAbierto = false
+                                    revision = "Revisando los avisos de la bandeja…" to false
+                                    scope.launch { revision = revisarNotificaciones(context, permisoConcedido) }
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Permisos de notificaciones") },
                                 leadingIcon = { Icon(Icons.Filled.Notifications, contentDescription = null) },
@@ -370,6 +383,28 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
         )
     }
 
+    revision?.let { (texto, parado) ->
+        AlertDialog(
+            onDismissRequest = { revision = null },
+            title = { Text("Revisar notificaciones") },
+            text = { Text(texto) },
+            confirmButton = { TextButton(onClick = { revision = null }) { Text("Aceptar") } },
+            dismissButton = if (parado) {
+                {
+                    TextButton(onClick = {
+                        revision = null
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${context.packageName}"),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }) { Text("Ajustes de la app") }
+                }
+            } else null,
+        )
+    }
+
     if (dialogoActualizar) DialogoActualizar(onCerrar = { dialogoActualizar = false })
 
     if (dialogoPeriodo) {
@@ -399,4 +434,31 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             dismissButton = { TextButton(onClick = { dialogoPeriodo = false }) { Text("Cancelar") } },
         )
     }
+}
+
+/**
+ * Procesa los avisos que hay ahora en la bandeja. Si el sistema ha parado el lector (MIUI),
+ * pide a Android que lo vuelva a conectar. Devuelve (mensaje, lector parado).
+ */
+private suspend fun revisarNotificaciones(context: android.content.Context, permiso: Boolean): Pair<String, Boolean> {
+    if (!permiso) return "Primero concede el acceso a notificaciones en ⚙️ → Permisos de notificaciones." to false
+    var servicio = ServicioNotificaciones.instancia
+    if (servicio == null) {
+        android.service.notification.NotificationListenerService.requestRebind(
+            android.content.ComponentName(context, ServicioNotificaciones::class.java)
+        )
+        repeat(10) { if (ServicioNotificaciones.instancia == null) delay(500) }
+        servicio = ServicioNotificaciones.instancia
+    }
+    if (servicio == null) {
+        return ("El sistema tiene parado el lector de notificaciones, por eso no se apuntan los pagos. " +
+            "En los ajustes de la app activa \"Inicio automático\" y en Ahorro de batería elige \"Sin restricciones\". " +
+            "Si sigue igual, desactiva y vuelve a activar el acceso a notificaciones de Gastos.") to true
+    }
+    val (revisados, nuevos) = servicio.revisarBandeja()
+    return when {
+        revisados == 0 -> "No hay avisos de pagos en la bandeja ahora mismo. Los que ya se han borrado de la bandeja no se pueden recuperar; añádelos a mano."
+        nuevos == 0 -> "Revisados $revisados avisos: ya estaban todos apuntados (los avisos repetidos del mismo pago se unen)."
+        else -> "Revisados $revisados avisos: $nuevos ${if (nuevos == 1) "gasto nuevo apuntado" else "gastos nuevos apuntados"}."
+    } to false
 }

@@ -67,6 +67,12 @@ fun PantallaPermisos(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val activo = com.garaih.appgastos.captura.ServicioNotificaciones.instancia != null
+                Text(
+                    (if (activo) "🟢 Lector activo" else "🟠 Lector parado por el sistema") +
+                        (preferencias.ultimoAviso.takeIf { it > 0 }?.let { " · último aviso: ${fechaHora(it)}" } ?: " · aún sin avisos"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Button(onClick = { abrirAjustesPermiso(context) }) {
                     Text(if (permisoConcedido) "Revisar en ajustes" else "Conceder permiso")
                 }

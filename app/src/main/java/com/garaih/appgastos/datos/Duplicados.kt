@@ -36,6 +36,40 @@ object Duplicados {
             .minByOrNull { abs(it.fecha - nuevo.fecha) }
     }
 
+    /**
+     * Mismo pago avisado por dos fuentes cuando el importe no se puede comparar (pago en otra
+     * moneda: Wallet da "12,10 US$" y el banco la retención en euros). Se casan por tarjeta y hora.
+     */
+    fun buscarPorTarjeta(nuevo: Gasto, existentes: List<Gasto>): Gasto? {
+        val tarjeta = nuevo.tarjeta ?: return null
+        return existentes
+            .filter { g ->
+                g.id != nuevo.id && g.tarjeta == tarjeta && g.origen in AUTOMATICAS && g.origen != nuevo.origen &&
+                    ((g.importeCentimos == null) != (nuevo.importeCentimos == null)) &&
+                    abs(g.fecha - nuevo.fecha) <= MARGEN_CORREO_MS
+            }
+            .minByOrNull { abs(it.fecha - nuevo.fecha) }
+    }
+
+    /** Une dos avisos del mismo pago: importe en euros de quien lo tenga y el mejor nombre de comercio. */
+    fun unir(existente: Gasto, nuevo: Gasto): Gasto {
+        // Wallet y el correo traen el nombre del comercio; el aviso del banco a veces no.
+        val nombreNuevoMejor = nuevo.origen != Gasto.ORIGEN_SANTANDER &&
+            (existente.origen == Gasto.ORIGEN_SANTANDER || existente.comercio == SIN_COMERCIO)
+        val importe = existente.importeCentimos ?: nuevo.importeCentimos
+        return existente.copy(
+            importeCentimos = importe,
+            moneda = "EUR",
+            comercio = if (nombreNuevoMejor && nuevo.comercio != SIN_COMERCIO) nuevo.comercio else existente.comercio,
+            tarjeta = existente.tarjeta ?: nuevo.tarjeta,
+            interpretado = importe != null,
+            textoCrudo = if (importe != null) null else existente.textoCrudo ?: nuevo.textoCrudo,
+        )
+    }
+
+    /** Nombre provisional cuando el aviso no dice el comercio. */
+    const val SIN_COMERCIO = "Pago con tarjeta"
+
     /** Para altas manuales: mismo importe el mismo día (o con texto de comercio parecido). */
     fun buscarParaManual(nuevo: Gasto, existentes: List<Gasto>, mismoDia: (Long, Long) -> Boolean): Gasto? {
         val importe = nuevo.importeCentimos ?: return null
