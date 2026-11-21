@@ -231,6 +231,9 @@ fun PantallaEditarGasto(
                 "Origen: " + when (gasto.origen) {
                     Gasto.ORIGEN_CARTERA -> "pago con el móvil" + (gasto.tarjeta?.let { " (tarjeta ••$it)" } ?: "")
                     Gasto.ORIGEN_MANUAL -> "añadido a mano"
+                    Gasto.ORIGEN_SANTANDER -> "aviso de Santander" + (gasto.tarjeta?.let { " (tarjeta ••$it)" } ?: "")
+                    Gasto.ORIGEN_CORREO -> "recibo por correo"
+                    Gasto.ORIGEN_RECURRENTE -> "gasto recurrente"
                     else -> gasto.origen
                 },
                 style = MaterialTheme.typography.bodySmall,

@@ -146,9 +146,15 @@ class GastosRepositorio(
             subcategoria = sug?.subcategoria,
         )
         // El mismo pago puede llegar por Wallet y por el banco: se guarda una sola vez.
-        val cercanos = dao.entre(gasto.fecha - Duplicados.MARGEN_FUENTES_MS, gasto.fecha + Duplicados.MARGEN_FUENTES_MS)
+        val cercanos = dao.entre(gasto.fecha - Duplicados.VENTANA_MAXIMA_MS, gasto.fecha + Duplicados.VENTANA_MAXIMA_MS)
         Duplicados.buscarDeNotificacion(gasto, cercanos)?.let { existente ->
-            if (existente.tarjeta == null && gasto.tarjeta != null) dao.actualizar(existente.copy(tarjeta = gasto.tarjeta))
+            var mejorado = existente
+            if (existente.tarjeta == null && gasto.tarjeta != null) mejorado = mejorado.copy(tarjeta = gasto.tarjeta)
+            // El correo suele traer un nombre más claro que el aviso del banco.
+            if (existente.origen == Gasto.ORIGEN_SANTANDER && gasto.origen == Gasto.ORIGEN_CORREO && r.comercio != null) {
+                mejorado = mejorado.copy(comercio = comercio, categoria = mejorado.categoria ?: gasto.categoria, subcategoria = mejorado.subcategoria ?: gasto.subcategoria)
+            }
+            if (mejorado != existente) dao.actualizar(mejorado)
             return false
         }
         return dao.insertar(gasto) != -1L

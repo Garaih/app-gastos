@@ -14,12 +14,19 @@ object Cartera {
     const val PAQUETE_SANTANDER = "es.bancosantander.apps"
 
     /** Paquetes de los que se leen notificaciones; el resto se ignora. */
-    fun paquetes(leerSantander: Boolean): Set<String> =
-        if (leerSantander) setOf(PAQUETE_WALLET, PAQUETE_SANTANDER) else setOf(PAQUETE_WALLET)
+    fun paquetes(leerSantander: Boolean, leerCorreo: Boolean = false): Set<String> = buildSet {
+        add(PAQUETE_WALLET)
+        if (leerSantander) add(PAQUETE_SANTANDER)
+        if (leerCorreo) add(Correo.PAQUETE_GMAIL)
+    }
 
-    fun origenDe(paquete: String): String =
-        if (paquete == PAQUETE_SANTANDER) com.garaih.appgastos.datos.Gasto.ORIGEN_SANTANDER
-        else com.garaih.appgastos.datos.Gasto.ORIGEN_CARTERA
+    fun origenDe(paquete: String): String = when (paquete) {
+        PAQUETE_SANTANDER -> com.garaih.appgastos.datos.Gasto.ORIGEN_SANTANDER
+        Correo.PAQUETE_GMAIL -> com.garaih.appgastos.datos.Gasto.ORIGEN_CORREO
+        else -> com.garaih.appgastos.datos.Gasto.ORIGEN_CARTERA
+    }
+
+    fun gmailInstalado(context: Context): Boolean = instalado(context, Correo.PAQUETE_GMAIL)
 
     fun estaInstalada(context: Context): Boolean = instalado(context, PAQUETE_WALLET)
     fun santanderInstalada(context: Context): Boolean = instalado(context, PAQUETE_SANTANDER)

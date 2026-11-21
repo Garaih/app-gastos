@@ -48,6 +48,8 @@ fun PantallaPermisos(
     val preferencias = remember { com.garaih.appgastos.datos.Preferencias(context) }
     var leerSantander by remember { androidx.compose.runtime.mutableStateOf(preferencias.leerSantander) }
     val santanderInstalada = remember { Cartera.santanderInstalada(context) }
+    var leerCorreo by remember { androidx.compose.runtime.mutableStateOf(preferencias.leerCorreo) }
+    var remitentes by remember { androidx.compose.runtime.mutableStateOf(preferencias.remitentesCorreo) }
     Column(
         modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -60,7 +62,7 @@ fun PantallaPermisos(
                 )
                 Text(
                     "Necesario para registrar solos los pagos con el móvil. " +
-                        "La app solo lee las notificaciones de Google Wallet (y de Santander si lo activas) e ignora el resto. " +
+                        "La app solo lee las notificaciones de Google Wallet y, si lo activas, de Santander y de los remitentes de correo elegidos; ignora el resto. " +
                         "Tus gastos nunca salen del teléfono.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -109,6 +111,43 @@ fun PantallaPermisos(
                 )
             }
         }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("📧  Recibos por correo (Gmail)", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (Cartera.gmailInstalado(context)) "Gmail instalado" else "Gmail no encontrado",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = leerCorreo,
+                        onCheckedChange = { leerCorreo = it; preferencias.leerCorreo = it },
+                    )
+                }
+                Text(
+                    "Lee solo los avisos de Gmail de estos remitentes, y solo si parecen un recibo con importe " +
+                        "(las promociones se ignoran). No accede a tu cuenta: usa la notificación que ya ves en el móvil. " +
+                        "Si el mismo pago llega por correo y por Santander o Wallet, o coincide con un recibo recurrente, se guarda una sola vez.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (leerCorreo) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = remitentes,
+                        onValueChange = { remitentes = it; preferencias.remitentesCorreo = it },
+                        label = { Text("Remitentes (separados por comas)") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    androidx.compose.material3.TextButton(onClick = {
+                        remitentes = com.garaih.appgastos.captura.Correo.REMITENTES_POR_DEFECTO
+                        preferencias.remitentesCorreo = remitentes
+                    }) { Text("Restaurar lista por defecto") }
+                }
+            }
+        }
         Text(
             "En Xiaomi: activa también \"Inicio automático\" y pon el ahorro de batería de la app en \"Sin restricciones\".",
             style = MaterialTheme.typography.bodySmall,
@@ -132,7 +171,7 @@ fun PantallaDiagnostico(modifier: Modifier = Modifier) {
     ) {
         item {
             Text(
-                "Notificaciones de la cartera recibidas desde que se abrió la app. Solo en memoria.",
+                "Avisos aceptados (Wallet, Santander y recibos por correo) desde que se abrió la app. Solo en memoria.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

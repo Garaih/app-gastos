@@ -40,5 +40,6 @@ data class Gasto(
         const val ORIGEN_PRUEBA = "prueba"
         const val ORIGEN_SANTANDER = "santander"
         const val ORIGEN_RECURRENTE = "recurrente"
+        const val ORIGEN_CORREO = "correo"
     }
 }

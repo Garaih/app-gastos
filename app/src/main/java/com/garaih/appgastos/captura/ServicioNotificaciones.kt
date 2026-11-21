@@ -21,7 +21,7 @@ class ServicioNotificaciones : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val repositorio by lazy { GastosRepositorio.de(applicationContext) }
     private val preferencias by lazy { Preferencias(applicationContext) }
-    private fun paquetes() = Cartera.paquetes(preferencias.leerSantander)
+    private fun paquetes() = Cartera.paquetes(preferencias.leerSantander, preferencias.leerCorreo)
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -59,6 +59,13 @@ class ServicioNotificaciones : NotificationListenerService() {
             subTexto = texto(Notification.EXTRA_SUB_TEXT),
             textoInfo = texto(Notification.EXTRA_INFO_TEXT),
         )
+        if (sbn.packageName == Correo.PAQUETE_GMAIL) {
+            // Solo remitentes elegidos y solo si parece un recibo con importe; si no, se ignora del todo.
+            Correo.remitenteDe(cruda.titulo, Correo.remitentes(preferencias.remitentesCorreo)) ?: return
+            val contenido = listOfNotNull(cruda.texto, cruda.textoGrande, cruda.subTexto).joinToString("\n")
+            if (!Correo.pareceRecibo(contenido)) return
+            if (com.garaih.appgastos.datos.ParserCartera.buscarImporte(contenido) == null) return
+        }
         CapturaRepositorio.anadir(cruda)
         scope.launch {
             // Misma notificación y mismo instante = mismo pago, aunque se reenvíe o actualice.
