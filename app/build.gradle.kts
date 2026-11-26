@@ -19,7 +19,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = codigoVersion
-        versionName = "0.8.1"
+        versionName = "0.9.0"
     }
 
     // En GitHub Actions se firma con la clave de depuración del PC de Javier (secreto),
@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.work.runtime)
 
     testImplementation(libs.junit)
 }

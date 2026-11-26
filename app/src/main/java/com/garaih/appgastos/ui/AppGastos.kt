@@ -91,7 +91,14 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
     val ingresosFijos by repositorio.ingresosFijos.collectAsState(initial = emptyList())
     val recurrentes by repositorio.recurrentes.collectAsState(initial = emptyList())
     // Al abrir la app se apuntan los cargos recurrentes que tocan hasta hoy.
-    LaunchedEffect(Unit) { repositorio.generarRecurrentes() }
+    LaunchedEffect(Unit) {
+        repositorio.generarRecurrentes()
+        com.garaih.appgastos.recordatorios.Recordatorios.programar(context)
+        com.garaih.appgastos.recordatorios.Recordatorios.revisar(context)
+    }
+    var saldoInicial by remember { mutableStateOf(preferencias.saldoInicial) }
+    var inicioSaldo by remember { mutableStateOf(preferencias.inicioSaldo) }
+    var dialogoSaldo by remember { mutableStateOf(false) }
     val mapaPresupuestos = presupuestos.associate { it.categoria to it.limiteCentimos }
     val scope = rememberCoroutineScope()
 
@@ -129,7 +136,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
         is Pantalla.Editar -> if (p.gasto == null) "Nuevo gasto" else "Editar gasto"
         Pantalla.Buscar -> "Buscar"
         Pantalla.Categorias -> "Categorías"
-        Pantalla.Recurrentes -> "Recurrentes y plazos"
+        Pantalla.Recurrentes -> "Fijos y suscripciones"
         is Pantalla.EditarCategoria -> if (p.categoria == null) "Nueva categoría" else "Editar categoría"
         Pantalla.Permisos -> "Permisos"
         Pantalla.Diagnostico -> "Diagnóstico de captura"
@@ -174,7 +181,7 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                                 onClick = { menuAbierto = false; pantalla = Pantalla.Categorias },
                             )
                             DropdownMenuItem(
-                                text = { Text("Gastos recurrentes y plazos") },
+                                text = { Text("Fijos y suscripciones") },
                                 leadingIcon = { Text("🔁") },
                                 onClick = { menuAbierto = false; pantalla = Pantalla.Recurrentes },
                             )
@@ -182,6 +189,11 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                                 text = { Text("Inicio del periodo: día $diaInicio") },
                                 leadingIcon = { Icon(Icons.Filled.DateRange, contentDescription = null) },
                                 onClick = { menuAbierto = false; dialogoPeriodo = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Saldo acumulado") },
+                                leadingIcon = { Text("💰") },
+                                onClick = { menuAbierto = false; dialogoSaldo = true },
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
@@ -250,6 +262,9 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
         },
     ) { padding ->
         val mod = Modifier.padding(padding)
+        val inicioPeriodo = if (inicioSaldo > 0) Periodo(java.time.YearMonth.of(inicioSaldo / 100, inicioSaldo % 100), diaInicio)
+            else com.garaih.appgastos.datos.Saldo.inicioAutomatico(diaInicio, ingresos, ingresosFijos, ::aFechaLocal)
+        val saldo = com.garaih.appgastos.datos.Saldo.calcular(periodo, inicioPeriodo, saldoInicial, gastos, ingresos, ingresosFijos, ::aFechaLocal)
         when (val p = pantalla) {
             Pantalla.Inicio -> PantallaInicio(
                 gastos = gastos,
@@ -258,10 +273,13 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
                 ingresos = ingresos,
                 ingresosFijos = ingresosFijos,
                 recurrentes = recurrentes,
+                arrastre = saldo.arrastre,
+                apartado = objetivos.sumOf { it.ahorradoCentimos },
                 periodo = periodo,
                 onCambiarPeriodo = { periodo = it },
                 onAbrirGasto = { pantalla = Pantalla.Editar(it) },
                 onIrAhorro = { pantalla = Pantalla.Ahorro; pestana = Pantalla.Ahorro },
+                onIrFijos = { pantalla = Pantalla.Recurrentes },
                 modifier = mod,
             )
             Pantalla.Analisis -> PantallaAnalisis(
@@ -326,8 +344,10 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             )
             Pantalla.Recurrentes -> PantallaRecurrentes(
                 recurrentes = recurrentes,
+                gastos = gastos,
                 categorias = categorias,
                 onEditar = { recurrenteEditando = it },
+                onAceptarSugerencia = { scope.launch { repositorio.aceptarSugerencia(it) } },
                 modifier = mod,
             )
             Pantalla.Categorias -> PantallaCategorias(
@@ -380,6 +400,47 @@ fun AppGastos(permisoConcedido: Boolean, carteraInstalada: Boolean) {
             },
             confirmButton = { TextButton(onClick = { duplicado = null; guardarYa() }) { Text("Añadir igualmente") } },
             dismissButton = { TextButton(onClick = { duplicado = null }) { Text("No, es el mismo") } },
+        )
+    }
+
+    if (dialogoSaldo) {
+        var texto by remember { mutableStateOf(importeEditable(saldoInicial.takeIf { it != 0L })) }
+        val desde = if (inicioSaldo > 0) Periodo(java.time.YearMonth.of(inicioSaldo / 100, inicioSaldo % 100), diaInicio)
+            else com.garaih.appgastos.datos.Saldo.inicioAutomatico(diaInicio, ingresos, ingresosFijos, ::aFechaLocal)
+        AlertDialog(
+            onDismissRequest = { dialogoSaldo = false },
+            title = { Text("Saldo acumulado") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Lo que sobra de un periodo pasa al siguiente. El Resumen muestra lo disponible en total: " +
+                            "saldo inicial + ingresos − gastos desde el periodo de inicio, menos lo apartado en objetivos.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Se cuenta desde: " + (desde?.let { nombrePeriodo(it) } ?: "tu primer ingreso") +
+                            if (inicioSaldo > 0) "" else " (automático)",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    CampoImporte(texto, { texto = it }, "Saldo inicial (opcional)")
+                    TextButton(onClick = {
+                        val actual = Periodo.que(LocalDate.now(), diaInicio)
+                        inicioSaldo = actual.mes.year * 100 + actual.mes.monthValue
+                        preferencias.inicioSaldo = inicioSaldo
+                    }) { Text("Empezar a contar desde este periodo") }
+                    if (inicioSaldo > 0) {
+                        TextButton(onClick = { inicioSaldo = 0; preferencias.inicioSaldo = 0 }) { Text("Volver al inicio automático") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    saldoInicial = centimosDe(texto) ?: 0L
+                    preferencias.saldoInicial = saldoInicial
+                    dialogoSaldo = false
+                }) { Text("Guardar") }
+            },
+            dismissButton = { TextButton(onClick = { dialogoSaldo = false }) { Text("Cancelar") } },
         )
     }
 

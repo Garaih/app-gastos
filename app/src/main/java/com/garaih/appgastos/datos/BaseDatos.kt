@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Gasto::class, ReglaCategoria::class, Categoria::class,
         Presupuesto::class, Objetivo::class, Inversion::class, Ingreso::class, IngresoFijo::class, Recurrente::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class BaseDatos : RoomDatabase() {
@@ -89,6 +89,14 @@ abstract class BaseDatos : RoomDatabase() {
             }
         }
 
+        private val MIGRACION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `recurrentes` ADD COLUMN `recordarDias` INTEGER")
+                db.execSQL("ALTER TABLE `recurrentes` ADD COLUMN `quiereCancelar` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `recurrentes` ADD COLUMN `avisadoMes` INTEGER")
+            }
+        }
+
         private fun crearTablaCategorias(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS `categorias` (`clave` TEXT NOT NULL, `nombre` TEXT NOT NULL, " +
@@ -120,7 +128,7 @@ abstract class BaseDatos : RoomDatabase() {
                 instancia ?: Room.databaseBuilder(
                     context.applicationContext, BaseDatos::class.java, "gastos.db"
                 )
-                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5, MIGRACION_5_6)
+                    .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5, MIGRACION_5_6, MIGRACION_6_7)
                     .addCallback(AL_CREAR)
                     .build().also { instancia = it }
             }

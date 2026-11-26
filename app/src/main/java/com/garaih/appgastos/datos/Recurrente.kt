@@ -1,5 +1,6 @@
 package com.garaih.appgastos.datos
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Entity
@@ -29,6 +30,12 @@ data class Recurrente(
     val ultimoMes: Int,
     val activo: Boolean = true,
     val creado: Long = System.currentTimeMillis(),
+    /** Avisar N días antes de cada cargo (null = sin aviso). */
+    val recordarDias: Int? = null,
+    /** El usuario quiere darlo de baja: el aviso le recuerda cancelarlo antes del cargo. */
+    @ColumnInfo(defaultValue = "0") val quiereCancelar: Boolean = false,
+    /** Último mes (AAAAMM) del que ya se avisó, para no repetir el recordatorio. */
+    val avisadoMes: Int? = null,
 )
 
 @Dao

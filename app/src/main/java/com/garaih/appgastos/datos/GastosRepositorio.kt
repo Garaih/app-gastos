@@ -22,19 +22,33 @@ class GastosRepositorio(
         var actual = r
         Recurrencia.pendientes(r, hoy).forEach { c ->
             val fecha = c.fecha.atTime(9, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-            dao.insertar(
-                Gasto(
-                    fecha = fecha,
-                    importeCentimos = r.importeCentimos,
-                    comercio = r.comercio,
-                    origen = Gasto.ORIGEN_RECURRENTE,
-                    claveOrigen = "rec:${r.id}:${Recurrencia.aClave(c.mes)}",
-                    categoria = r.categoria,
-                    subcategoria = r.subcategoria,
-                    recurrenteId = r.id,
-                    plazo = c.plazo,
-                )
+            val cargo = Gasto(
+                fecha = fecha,
+                importeCentimos = r.importeCentimos,
+                comercio = r.comercio,
+                origen = Gasto.ORIGEN_RECURRENTE,
+                claveOrigen = "rec:${r.id}:${Recurrencia.aClave(c.mes)}",
+                categoria = r.categoria,
+                subcategoria = r.subcategoria,
+                recurrenteId = r.id,
+                plazo = c.plazo,
             )
+            // Si el aviso del cargo (Wallet, banco, correo) ya llegó, se vincula en vez de duplicarlo.
+            val cercanos = dao.entre(fecha - Duplicados.MARGEN_RECURRENTE_MS, fecha + Duplicados.MARGEN_RECURRENTE_MS)
+            val aviso = Duplicados.buscarAvisoParaRecurrente(cargo, cercanos)
+            if (aviso != null) {
+                dao.actualizar(
+                    aviso.copy(
+                        recurrenteId = r.id,
+                        plazo = c.plazo,
+                        comercio = r.comercio,
+                        categoria = aviso.categoria ?: r.categoria,
+                        subcategoria = aviso.subcategoria ?: r.subcategoria,
+                    )
+                )
+            } else {
+                dao.insertar(cargo)
+            }
             actual = actual.copy(ultimoMes = Recurrencia.aClave(c.mes))
         }
         if (Recurrencia.terminado(actual)) actual = actual.copy(activo = false)
@@ -71,7 +85,31 @@ class GastosRepositorio(
         if (ajustado.activo) generar(ajustado, java.time.LocalDate.now())
     }
 
-    suspend fun finalizarRecurrente(r: Recurrente) = recurrentesDao.actualizar(r.copy(activo = false))
+    suspend fun recurrentesActivos(): List<Recurrente> = recurrentesDao.activos()
+    suspend fun marcarAvisado(r: Recurrente, mes: Int) = recurrentesDao.actualizar(r.copy(avisadoMes = mes))
+
+    /**
+     * Marca como recurrente una suscripción detectada: se crea desde el mes de su último pago
+     * (así no se apuntan meses pasados) y se vinculan los pagos que ya había.
+     */
+    suspend fun aceptarSugerencia(s: Suscripciones.Sugerencia) {
+        val zona = java.time.ZoneId.systemDefault()
+        val mes = Recurrencia.aClave(java.time.YearMonth.from(java.time.Instant.ofEpochMilli(s.ultimo.fecha).atZone(zona)))
+        val id = recurrentesDao.insertar(
+            Recurrente(
+                comercio = s.comercio,
+                importeCentimos = s.importeCentimos,
+                categoria = s.ultimo.categoria,
+                subcategoria = s.ultimo.subcategoria,
+                dia = s.dia,
+                inicioMes = mes,
+                ultimoMes = mes,
+            )
+        )
+        s.gastos.forEach { dao.actualizar(it.copy(recurrenteId = id)) }
+    }
+
+    suspend fun finalizarRecurrente(r: Recurrente) = recurrentesDao.actualizar(r.copy(activo = false, recordarDias = null))
 
     /** Borra la recurrencia; los gastos ya apuntados se conservan. */
     suspend fun borrarRecurrente(r: Recurrente) = recurrentesDao.borrar(r)

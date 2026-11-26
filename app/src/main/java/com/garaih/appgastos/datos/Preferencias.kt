@@ -33,7 +33,19 @@ class Preferencias(context: Context) {
     val ultimoAviso: Long get() = prefs.getLong(CLAVE_ULTIMO_AVISO, 0L)
     fun marcarAvisoRecibido() = prefs.edit().putLong(CLAVE_ULTIMO_AVISO, System.currentTimeMillis()).apply()
 
+    /** Saldo con el que empieza la cuenta global (céntimos). */
+    var saldoInicial: Long
+        get() = prefs.getLong(CLAVE_SALDO_INICIAL, 0L)
+        set(valor) = prefs.edit().putLong(CLAVE_SALDO_INICIAL, valor).apply()
+
+    /** Periodo (AAAAMM, mes en que termina) desde el que se acumula; 0 = automático. */
+    var inicioSaldo: Int
+        get() = prefs.getInt(CLAVE_INICIO_SALDO, 0)
+        set(valor) = prefs.edit().putInt(CLAVE_INICIO_SALDO, valor).apply()
+
     private companion object {
+        const val CLAVE_SALDO_INICIAL = "saldo_inicial"
+        const val CLAVE_INICIO_SALDO = "inicio_saldo"
         const val CLAVE_CONECTADO = "lector_conectado"
         const val CLAVE_ULTIMO_AVISO = "ultimo_aviso"
         const val CLAVE_CORREO = "leer_correo"

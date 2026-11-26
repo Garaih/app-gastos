@@ -24,17 +24,53 @@ object Duplicados {
         else -> MARGEN_FUENTES_MS
     }
 
+    private val PALABRAS_VACIAS = setOf(
+        "pago", "tarjeta", "compra", "recibo", "cargo", "factura", "cuota", "suscripcion", "servicio",
+        "debito", "credito", "online", "espana", "spain", "europe", "ireland", "limited", "ltd",
+    )
+
+    /** true si los dos nombres de comercio comparten alguna palabra significativa (≥ 4 letras). */
+    fun mismoComercio(a: String, b: String): Boolean {
+        fun palabras(x: String) = Clasificador.normalizar(x).split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 4 && it !in PALABRAS_VACIAS }.toSet()
+        val pa = palabras(a)
+        val pb = palabras(b)
+        return pa.isNotEmpty() && pb.isNotEmpty() && pa.intersect(pb).isNotEmpty()
+    }
+
+    /** Un cargo recurrente y un aviso son el mismo pago: mismo importe, o mismo comercio con importe parecido (±20 %). */
+    fun encajaConRecurrente(recurrente: Gasto, aviso: Gasto): Boolean {
+        if (abs(recurrente.fecha - aviso.fecha) > MARGEN_RECURRENTE_MS) return false
+        val a = recurrente.importeCentimos
+        val b = aviso.importeCentimos
+        if (a != null && a == b) return true
+        if (!mismoComercio(recurrente.comercio, aviso.comercio)) return false
+        return a == null || b == null || abs(a - b) <= maxOf(a, b) / 5
+    }
+
     /** Gasto ya guardado que corresponde al mismo pago que [nuevo] (llegado por notificación), o null. */
     fun buscarDeNotificacion(nuevo: Gasto, existentes: List<Gasto>): Gasto? {
+        val candidatos = existentes.filter { g -> g.id != nuevo.id }
+        // 1) Un cargo recurrente ya apuntado (recibo, suscripción, plazo).
+        candidatos.filter { it.origen == Gasto.ORIGEN_RECURRENTE && encajaConRecurrente(it, nuevo) }
+            .minByOrNull { abs(it.fecha - nuevo.fecha) }?.let { return it }
+        // 2) El mismo pago avisado por otra fuente.
         val importe = nuevo.importeCentimos ?: return null
-        return existentes
+        return candidatos
             .filter { g ->
-                g.id != nuevo.id && g.importeCentimos == importe &&
-                    (g.origen in AUTOMATICAS || g.origen == Gasto.ORIGEN_RECURRENTE) &&
+                g.importeCentimos == importe && g.origen in AUTOMATICAS &&
                     abs(g.fecha - nuevo.fecha) <= margen(g, nuevo)
             }
             .minByOrNull { abs(it.fecha - nuevo.fecha) }
     }
+
+    /**
+     * Para un cargo recurrente que se va a apuntar: aviso ya guardado (Wallet, banco o correo)
+     * que es ese mismo cargo, aún sin vincular a ninguna recurrencia.
+     */
+    fun buscarAvisoParaRecurrente(cargo: Gasto, existentes: List<Gasto>): Gasto? =
+        existentes.filter { it.origen in AUTOMATICAS && it.recurrenteId == null && encajaConRecurrente(cargo, it) }
+            .minByOrNull { abs(it.fecha - cargo.fecha) }
 
     /**
      * Mismo pago avisado por dos fuentes cuando el importe no se puede comparar (pago en otra
@@ -56,6 +92,17 @@ object Duplicados {
         // Wallet y el correo traen el nombre del comercio; el aviso del banco a veces no.
         val nombreNuevoMejor = nuevo.origen != Gasto.ORIGEN_SANTANDER &&
             (existente.origen == Gasto.ORIGEN_SANTANDER || existente.comercio == SIN_COMERCIO)
+        if (existente.origen == Gasto.ORIGEN_RECURRENTE) {
+            // El aviso confirma el cargo real: manda su importe y su fecha.
+            val real = nuevo.importeCentimos ?: existente.importeCentimos
+            return existente.copy(
+                importeCentimos = real,
+                fecha = nuevo.fecha,
+                tarjeta = existente.tarjeta ?: nuevo.tarjeta,
+                interpretado = real != null,
+                textoCrudo = null,
+            )
+        }
         val importe = existente.importeCentimos ?: nuevo.importeCentimos
         return existente.copy(
             importeCentimos = importe,

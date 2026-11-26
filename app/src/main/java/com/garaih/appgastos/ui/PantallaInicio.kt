@@ -86,10 +86,15 @@ fun PantallaInicio(
     ingresos: List<Ingreso>,
     ingresosFijos: List<IngresoFijo>,
     recurrentes: List<Recurrente>,
+    /** Lo que viene de periodos anteriores (saldo acumulado). */
+    arrastre: Long,
+    /** Dinero apartado en objetivos de ahorro (no disponible para gastar). */
+    apartado: Long,
     periodo: Periodo,
     onCambiarPeriodo: (Periodo) -> Unit,
     onAbrirGasto: (Gasto) -> Unit,
     onIrAhorro: () -> Unit,
+    onIrFijos: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hoy = LocalDate.now()
@@ -132,6 +137,8 @@ fun PantallaInicio(
         }
         item {
             TarjetaBalance(
+                arrastre = arrastre,
+                apartado = apartado,
                 ingresos = totalIngresos,
                 gastos = total,
                 pendienteRecurrente = pendienteRecurrente,
@@ -142,6 +149,35 @@ fun PantallaInicio(
                 grupos = grupos.filter { it.clave != CLAVE_REVISAR },
                 onIrAhorro = onIrAhorro,
             )
+        }
+        val fijos = recurrentes.filter { it.activo && it.plazos == null }
+        val plazos = recurrentes.filter { it.activo && it.plazos != null }
+        if (fijos.isNotEmpty() || plazos.isNotEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onIrFijos),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("🔁", fontSize = 22.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Fijos y suscripciones", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${fijos.size} fijos · ${euros(fijos.sumOf { it.importeCentimos } * 12)} al año" +
+                                    if (plazos.isNotEmpty()) " · ${plazos.size} a plazos" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            euros(fijos.sumOf { it.importeCentimos } + plazos.sumOf { it.importeCentimos }) + "/mes",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
         }
         if (proximos.isNotEmpty()) {
             item {
@@ -279,6 +315,8 @@ fun SelectorPeriodo(periodo: Periodo, puedeAvanzar: Boolean, onCambiar: (Periodo
 
 @Composable
 private fun TarjetaBalance(
+    arrastre: Long,
+    apartado: Long,
     ingresos: Long,
     gastos: Long,
     pendienteRecurrente: Long,
@@ -297,9 +335,10 @@ private fun TarjetaBalance(
         Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(fondo).padding(20.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (ingresos > 0) {
-                val disponible = ingresos - gastos
-                Text(if (disponible >= 0) "Te queda este periodo" else "Te has pasado", color = tenue, style = MaterialTheme.typography.bodyMedium)
+            if (ingresos > 0 || arrastre != 0L) {
+                // Visión global: lo que sobró de antes + este periodo − lo apartado en objetivos.
+                val disponible = arrastre + ingresos - gastos - apartado
+                Text(if (disponible >= 0) "Disponible" else "Te has pasado", color = tenue, style = MaterialTheme.typography.bodyMedium)
                 Text(euros(kotlin.math.abs(disponible)), color = blanco, fontSize = 40.sp, fontWeight = FontWeight.Bold)
                 if (diasRestantes != null && diasRestantes > 0 && disponible > 0) {
                     val libre = (disponible - pendienteRecurrente).coerceAtLeast(0)
@@ -310,20 +349,32 @@ private fun TarjetaBalance(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                Spacer(Modifier.height(6.dp))
+                val lineas = buildList {
+                    if (arrastre != 0L) add((if (arrastre > 0) "+" else "−") + euros(kotlin.math.abs(arrastre)) + " de periodos anteriores")
+                    add((if (ingresos - gastos >= 0) "+" else "−") + euros(kotlin.math.abs(ingresos - gastos)) + " de este periodo")
+                    if (apartado > 0) add("−" + euros(apartado) + " apartado en objetivos")
+                }
+                Text(lineas.joinToString("\n"), color = tenue, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(12.dp))
-                // Gastado frente a ingresos
-                val fraccion = (gastos.toFloat() / ingresos).coerceIn(0f, 1f)
+                // Gastado frente a lo que había para gastar
+                val base = (ingresos + arrastre.coerceAtLeast(0)).coerceAtLeast(1)
+                val fraccion = (gastos.toFloat() / base).coerceIn(0f, 1f)
                 Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = 0.22f))) {
                     Box(
                         Modifier.fillMaxWidth(fraccion).height(10.dp).clip(RoundedCornerShape(5.dp))
-                            .background(if (gastos > ingresos) Color(0xFFFCA5A5) else blanco)
+                            .background(if (disponible < 0) Color(0xFFFCA5A5) else blanco)
                     )
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Dato("Ingresos", euros(ingresos), Modifier.weight(1f))
                     Dato("Gastos", euros(gastos), Modifier.weight(1f))
-                    Dato("Ahorro", "${((ingresos - gastos) * 100 / ingresos).coerceAtLeast(-999)} %", Modifier.weight(1f))
+                    Dato(
+                        "Ahorro",
+                        if (ingresos > 0) "${((ingresos - gastos) * 100 / ingresos).coerceAtLeast(-999)} %" else "—",
+                        Modifier.weight(1f),
+                    )
                 }
             } else {
                 Text("Gastado este periodo", color = tenue, style = MaterialTheme.typography.bodyMedium)
